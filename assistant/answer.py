@@ -6,8 +6,12 @@ from .prompt import build_prompt, parse_answer
 BUSINESS_NAME = "Casa da Ribeira Example"
 
 
-def answer_question(client, model, documents, question):
-    """Answer a guest's question using only `documents` ({file name: text})."""
+def answer_question(client, model, documents, question, sleep=None):
+    """Answer a guest's question using only `documents` ({file name: text}).
+
+    `sleep` is passed on to ask_gemini; the evaluation script uses it to count the time
+    spent waiting between new attempts.
+    """
     prompt = build_prompt(documents, question, BUSINESS_NAME)
-    raw_text = ask_gemini(client, model, prompt)
+    raw_text = ask_gemini(client, model, prompt, sleep=sleep)
     return parse_answer(raw_text, document_names=list(documents))

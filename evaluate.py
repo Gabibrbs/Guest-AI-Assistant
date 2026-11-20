@@ -65,7 +65,8 @@ QUESTIONS = [
 CSV_COLUMNS = [
     "number", "language", "question", "answer", "sources", "found",
     "expected_found", "found_ok", "expected_sources", "source_ok", "keywords", "keywords_ok",
-    "has_markdown", "check_by_hand", "seconds", "error",
+    "has_markdown", "check_by_hand",
+    "seconds", "answer_seconds", "retry_wait_seconds", "attempts", "error",
     "language_ok", "invented",  # left empty, filled in by hand after reading the answers
 ]
 
@@ -133,12 +134,20 @@ def run_evaluation(client, model, documents, questions, numbers=None,
             rows.append(row)
             continue
 
+        # Record the waits between new attempts, to separate them from the model's own time
+        retry_waits = []
+
+        def sleep_and_record(seconds):
+            retry_waits.append(seconds)
+            sleep(seconds)
+
         start = time.perf_counter()
         try:
-            answer = answer_question(client, model, documents, item["question"])
+            answer = answer_question(client, model, documents, item["question"], sleep=sleep_and_record)
         except GeminiError as error:
             code = error_code(error)
-            row.update({"seconds": round(time.perf_counter() - start, 1), "error": f"{error} [{code}]"})
+            row.update(timing_columns(start, retry_waits))
+            row["error"] = f"{error} [{code}]"
             print(f"   ERROR: {error} [{code}]")
             if code == 429:
                 # Still 429 after the new attempts: usually the daily quota. The next questions would fail too.
@@ -149,16 +158,30 @@ def run_evaluation(client, model, documents, questions, numbers=None,
                 "answer": answer.text,
                 "sources": ", ".join(answer.sources),
                 "found": answer.found,
-                "seconds": round(time.perf_counter() - start, 1),
                 "error": "",
             })
+            row.update(timing_columns(start, retry_waits))
             row.update(check_answer(item, answer))
-            print(f"   {answer.text}\n   sources: {row['sources'] or '-'} | {row['seconds']} s")
+            print(f"   {answer.text}\n   sources: {row['sources'] or '-'} | "
+                  f"{row['seconds']} s ({row['answer_seconds']} s answering, "
+                  f"{row['retry_wait_seconds']} s waiting, {row['attempts']} attempt(s))")
 
         rows.append(row)
         if number != numbers[-1]:
             sleep(pause_seconds)
     return rows
+
+
+def timing_columns(start, retry_waits):
+    """Total time, time spent waiting between new attempts, and the rest (the API's own time)."""
+    total = time.perf_counter() - start
+    waited = sum(retry_waits)
+    return {
+        "seconds": round(total, 1),
+        "retry_wait_seconds": round(waited, 1),
+        "answer_seconds": round(max(total - waited, 0), 1),  # max(): never negative, even with a fake sleep
+        "attempts": len(retry_waits) + 1,
+    }
 
 
 def error_code(error):
@@ -193,13 +216,26 @@ def summary(rows):
         lines.append(f"{column}: {sum(1 for value in checked if is_true(value))} of {len(checked)}")
     lines.append(f"answers with Markdown: {sum(1 for row in rows if is_true(row.get('has_markdown')))}")
     lines.append(f"errors: {sum(1 for row in rows if row.get('error'))}")
-    times = [float(row["seconds"]) for row in rows if not row.get("error")]
-    if times:
-        lines.append(f"seconds per answer: average {sum(times) / len(times):.1f}, "
-                     f"min {min(times):.1f}, max {max(times):.1f}")
+    answered = [row for row in rows if not row.get("error")]
+    lines.append(seconds_line("seconds per answer, total", [row["seconds"] for row in answered]))
+    # Rows from runs before this column existed have it empty, so they are left out here
+    lines.append(seconds_line("seconds per answer, without retry waits",
+                              [row.get("answer_seconds", "") for row in answered]))
+    measured = [row for row in answered if str(row.get("attempts", "")) != ""]
+    with_retries = [row for row in measured if str(row["attempts"]) != "1"]
+    lines.append(f"answers that needed new attempts: {len(with_retries)} of {len(measured)} measured")
     lines.append(f"to check by hand: {sum(1 for row in rows if is_true(row.get('check_by_hand')))} "
                  f"(plus the language_ok and invented columns for all)")
     return "\n".join(lines)
+
+
+def seconds_line(label, values):
+    """'label: average X, min Y, max Z (n answers)', ignoring empty values."""
+    numbers = [float(value) for value in values if value != ""]
+    if not numbers:
+        return f"{label}: no data"
+    return (f"{label}: average {sum(numbers) / len(numbers):.1f}, "
+            f"min {min(numbers):.1f}, max {max(numbers):.1f} ({len(numbers)} answers)")
 
 
 def main():

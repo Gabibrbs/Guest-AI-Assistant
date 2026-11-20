@@ -82,7 +82,7 @@ The model is set in `.env` with `GEMINI_MODEL` (default `gemini-3.5-flash`). The
 pytest -v
 ```
 
-86 tests, all passing, in about one second. They never call the real API: the Gemini client is replaced by a fake one that returns prepared replies or raises API errors, and the retry waits are replaced so no test sleeps.
+89 tests, all passing, in about one second. They never call the real API: the Gemini client is replaced by a fake one that returns prepared replies or raises API errors, and the retry waits are replaced so no test sleeps.
 
 - **Documents:** each file type, accents and the Windows BOM, empty files, wrong encoding, broken, scanned (no text) and password-protected PDFs, folder loading.
 - **Prompt and answers:** every document is in the prompt with its name; one or several sources; "not in the documents"; invented source names are dropped; missing `SOURCE:` line.
@@ -100,12 +100,13 @@ python evaluate.py --retry-failed resultados_avaliacao_YYYYMMDD_HHMM.csv   # ask
 ```
 
 <!-- TODO: update this section after the full run (python evaluate.py --retry-failed ...) -->
-First run (20 November 2026, `gemini-3.5-flash`): the free-tier daily limit of 20 requests was reached after 8 of the 17 questions. Those 8 answers (in English, Portuguese and German, including one question with no answer in the guide) passed every automatic check: 8 of 8 for found / not found, 8 of 8 for the source, 7 of 7 for the keyword. None used Markdown, and reading them I found nothing invented. The Spanish, French and Italian questions and most of the unanswered ones are still to run.
+First run (20 November 2026, `gemini-3.5-flash`): my account's free-tier daily limit was reached after 8 of the 17 questions. Those 8 answers (in English, Portuguese and German, including one question with no answer in the guide) passed every automatic check: 8 of 8 for found / not found, 8 of 8 for the source, 7 of 7 for the keyword. None used Markdown, and reading them I found nothing invented. The Spanish, French and Italian questions and most of the unanswered ones are still to run.
 
 ## Limitations
 
-- **Speed:** answers took between 2 and 57 seconds in my tests (34 s on average in the evaluation run). The delay comes from the API, not from the app.
-- **Free-tier quota:** the free Gemini plan allows 20 requests per day, which is enough to try the demo but not to use it with real guests.
+- **Speed:** answers took between 2 and 57 seconds in my tests (34 s on average in the first evaluation run). That run measured the total time, which can include the 5 s and 10 s waits between new attempts after an error. In a separate check without any new attempts, the same question still took between 11 and 44 seconds. The evaluation script now records the API's own time and the retry waits in separate columns.
+- **Free-tier quota:** in my account (free tier, November 2026) Gemini allowed 20 requests per day, which is enough to try the demo but not to use it with real guests. Google changes these limits, so check yours in Google AI Studio.
+- **Each question is answered on its own.** The conversation is shown on the page, but earlier questions are not sent to the model, so a follow-up like "and on Sunday?" will not work. Ask complete questions.
 - **Demo, not production:** no login, one shared conversation kept in memory, and uploaded documents are lost when the server restarts.
 - **The model can still be wrong.** The prompt rules and the source check reduce the risk, and the evaluation script measures it, but they can't remove it completely.
 

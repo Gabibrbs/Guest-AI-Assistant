@@ -79,6 +79,42 @@ def test_run_evaluation_and_csv_with_fake_client(tmp_path):
     assert "errors: 1" in summary(saved)
 
 
+def test_retry_waits_are_separated_from_the_answer_time():
+    # 503, then 429, then an answer: two new attempts with waits of 5 s and 10 s
+    client = FakeGeminiClient(api_error(503), api_error(429), "The password is azulejo2026.\nSOURCE: the-house.md")
+    waits = []
+
+    rows = run_evaluation(client, "test-model", {"the-house.md": "text"}, [WIFI], sleep=waits.append)
+
+    row = rows[0]
+    assert waits == [5, 10]  # the fake sleep was used for the new attempts too
+    assert row["attempts"] == 3
+    assert row["retry_wait_seconds"] == 15
+    assert row["answer_seconds"] >= 0
+    assert "answers that needed new attempts: 1 of 1 measured" in summary(rows)
+
+
+def test_answer_without_retries_has_one_attempt_and_no_waiting():
+    client = FakeGeminiClient("The password is azulejo2026.\nSOURCE: the-house.md")
+
+    row = run_evaluation(client, "test-model", {"the-house.md": "text"}, [WIFI], sleep=lambda s: None)[0]
+
+    assert row["attempts"] == 1
+    assert row["retry_wait_seconds"] == 0
+    assert row["answer_seconds"] == row["seconds"]
+
+
+def test_summary_skips_missing_timing_from_older_csv_rows():
+    old_row = {"seconds": "40.0", "answer_seconds": "", "attempts": "", "error": ""}
+    new_row = {"seconds": "12.0", "answer_seconds": "12.0", "attempts": 1, "error": ""}
+
+    text = summary([old_row, new_row])
+
+    assert "total: average 26.0" in text and "(2 answers)" in text
+    assert "without retry waits: average 12.0, min 12.0, max 12.0 (1 answers)" in text
+    assert "new attempts: 0 of 1 measured" in text  # the old row is not counted as "no retries"
+
+
 def test_stops_asking_when_the_quota_is_reached():
     # 3 x 429 = the question fails after all the new attempts
     client = FakeGeminiClient(api_error(429), api_error(429), api_error(429))
