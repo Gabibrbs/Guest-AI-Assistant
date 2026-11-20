@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ business_name }} · Guest assistant</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="tile" aria-hidden="true"></span>
+      <div>
+        <h1>{{ business_name }}</h1>
+        <p>Guest assistant · answers only from the house guide, in your language</p>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <section class="panel">
+        <h2>House guide</h2>
+        <p class="hint">{{ documents|length }} documents</p>
+        <ul class="doc-list">
+          {% for name in documents %}
+            <li>
+              <span class="doc-name">{{ name }}</span>
+              {% if name in uploaded %}<span class="tag">uploaded</span>{% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      </section>
+
+      <section class="panel">
+        <h2>Add your own document</h2>
+        <p class="hint">.txt, .md or .pdf, up to {{ max_upload_mb }} MB</p>
+        <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" class="upload">
+          <input type="file" name="document" accept=".txt,.md,.pdf" required>
+          <button type="submit" class="button secondary">Upload</button>
+        </form>
+      </section>
+
+      <form action="{{ url_for('reset') }}" method="post">
+        <button type="submit" class="link-button">Start over</button>
+      </form>
+    </aside>
+
+    <main class="chat">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+          <p class="notice {{ category }}">{{ message }}</p>
+        {% endfor %}
+      {% endwith %}
+
+      <div class="messages">
+        {% if not history %}
+          <div class="empty">
+            <p>Ask anything about your stay. Try one of these:</p>
+            <div class="examples">
+              {% for example in example_questions %}
+                <form action="{{ url_for('ask') }}" method="post" data-busy>
+                  <input type="hidden" name="question" value="{{ example }}">
+                  <button type="submit" class="chip">{{ example }}</button>
+                </form>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+
+        {% for turn in history %}
+          <div class="message guest" {% if loop.last %}id="latest"{% endif %}>
+            <p>{{ turn.question }}</p>
+          </div>
+          <div class="message assistant">
+            <p>{{ turn.answer.text }}</p>
+            {% if not turn.answer.found %}
+              <p class="source missing">Not in the house guide · please contact the host</p>
+            {% elif turn.answer.sources %}
+              <p class="source">Source: {{ turn.answer.sources|join(', ') }}</p>
+            {% endif %}
+          </div>
+        {% endfor %}
+
+        <div class="message assistant thinking" id="thinking" hidden>
+          <p>Reading the house guide…</p>
+        </div>
+      </div>
+
+      <form action="{{ url_for('ask') }}" method="post" class="ask" data-busy>
+        <input type="text" name="question" placeholder="Type your question in any language…"
+               autocomplete="off" required autofocus>
+        <button type="submit" class="button">Ask</button>
+      </form>
+    </main>
+  </div>
+
+  <script>
+    // The only JavaScript in the app. An answer can take up to ~30 seconds, so while
+    // the page waits, disable the buttons and show "Reading the house guide…".
+    document.querySelectorAll("form[data-busy]").forEach(function (form) {
+      form.addEventListener("submit", function () {
+        document.querySelectorAll("form[data-busy] button").forEach(function (b) { b.disabled = true; });
+        document.getElementById("thinking").hidden = false;
+      });
+    });
+  </script>
+</body>
+</html>

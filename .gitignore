@@ -1,0 +1,28 @@
+# Segredos
+.env
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+.pytest_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Resultados locais do script de avaliação
+resultados_avaliacao*.csv
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Local tool settings
+.claude/
+
+# Local notes
+CLAUDE.md
+
+# Course material (kept local, not for publishing)
+referencia_tokio/
