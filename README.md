@@ -99,12 +99,23 @@ python evaluate.py
 python evaluate.py --retry-failed resultados_avaliacao_YYYYMMDD_HHMM.csv   # ask again only the failed questions
 ```
 
-<!-- TODO: update this section after the full run (python evaluate.py --retry-failed ...) -->
-First run (20 November 2026, `gemini-3.5-flash`): my account's free-tier daily limit was reached after 8 of the 17 questions. Those 8 answers (in English, Portuguese and German, including one question with no answer in the guide) passed every automatic check: 8 of 8 for found / not found, 8 of 8 for the source, 7 of 7 for the keyword. None used Markdown, and reading them I found nothing invented. The Spanish, French and Italian questions and most of the unanswered ones are still to run.
+Results with `gemini-3.5-flash`, over two days because of the free-tier daily limit (8 questions on 20 November 2026, the other 9 on 21 November):
+
+| Check | Result |
+|---|---|
+| Questions answered without errors | 17 of 17 |
+| "Found / not found" right | 15 of 15 (the two large-dog questions are checked by hand) |
+| Source right | 17 of 17 |
+| Expected keyword in the answer | 9 of 9 |
+| Answers with Markdown | 0 |
+
+- The four questions with no answer in the guide (baby cot, lift, airport transfer, bike rental) all got "this is not in the house guide" with a suggestion to contact the host, and no source.
+- The two large-dog questions (Portuguese and French) said that only small pets are mentioned and that large dogs are not covered by the guide, and suggested asking the host. Neither said that large dogs are refused.
+- Reading all 17 answers, each one was in the language of the question and I found nothing invented.
 
 ## Limitations
 
-- **Speed:** answers took between 2 and 57 seconds in my tests (34 s on average in the first evaluation run). That run measured the total time, which can include the 5 s and 10 s waits between new attempts after an error. In a separate check without any new attempts, the same question still took between 11 and 44 seconds. The evaluation script now records the API's own time and the retry waits in separate columns.
+- **Speed varies a lot.** In the second evaluation run, which measured the API's own time separately from the retry waits, 6 of 9 answers took under 5 seconds (median 3.2 s), but three took 26, 62 and 70 seconds, and two needed a new attempt after an error. On the first day, with only the total time measured, answers took between 2 and 51 seconds. The slow answers come from the API's response time, not from the app's own code.
 - **Free-tier quota:** in my account (free tier, November 2026) Gemini allowed 20 requests per day, which is enough to try the demo but not to use it with real guests. Google changes these limits, so check yours in Google AI Studio.
 - **Each question is answered on its own.** The conversation is shown on the page, but earlier questions are not sent to the model, so a follow-up like "and on Sunday?" will not work. Ask complete questions.
 - **Demo, not production:** no login, one shared conversation kept in memory, and uploaded documents are lost when the server restarts.
