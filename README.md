@@ -8,6 +8,8 @@ This is a demo project for my freelance work (Python automation and AI integrati
 
 ![The assistant answering guests in different languages](docs/screenshot.png)
 
+▶ Watch the 64-second demo: https://youtu.be/28QO39AkLzk
+
 ## What it does
 
 - Answers from the documents in `documentos/` (seven short house-guide files in English: check-in, the house, house rules, getting here, the neighbourhood, bookings, emergencies).
