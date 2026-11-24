@@ -3,7 +3,9 @@
 A short line sits under the question box, with a "Privacy" link to the full notice.
 The full notice says who is responsible (the property's name and contact, from
 config.toml), that questions go to Google's Gemini API, not to write personal data, and
-that conversations are deleted 24 hours after the last message.
+that conversations are deleted 24 hours after the last message. It also says the
+assistant is for guests aged 18 or over: the Gemini API terms do not allow apps that are
+"directed towards or likely to be accessed by individuals under the age of 18".
 
 What it says about Google follows the Gemini API terms for Paid Services: Google does
 not use the content to improve its products and logs it for a limited time only to
@@ -31,6 +33,7 @@ NOTICES = {
                    "after your last message. It is linked only to a cookie in your browser, not to your name.",
         "logs": "The app records only counts and errors, never the text of your questions.",
         "back": "Back to the assistant",
+        "adults": "This assistant is for guests aged 18 or over.",
     },
     "pt": {
         "line": "As perguntas são enviadas à IA Gemini da Google. Não escreva dados pessoais.",
@@ -47,6 +50,7 @@ NOTICES = {
                    "da sua última mensagem. Está ligada apenas a um cookie no seu browser, não ao seu nome.",
         "logs": "A aplicação regista apenas contagens e erros, nunca o texto das perguntas.",
         "back": "Voltar ao assistente",
+        "adults": "Este assistente destina-se a hóspedes com 18 anos ou mais.",
     },
     "es": {
         "line": "Las preguntas se envían a la IA Gemini de Google. No escribas datos personales.",
@@ -63,6 +67,7 @@ NOTICES = {
                    "después de tu último mensaje. Solo está vinculada a una cookie de tu navegador, no a tu nombre.",
         "logs": "La aplicación solo registra recuentos y errores, nunca el texto de tus preguntas.",
         "back": "Volver al asistente",
+        "adults": "Este asistente está pensado para huéspedes de 18 años o más.",
     },
     "fr": {
         "line": "Les questions sont envoyées à l'IA Gemini de Google. N'indiquez pas de données personnelles.",
@@ -80,6 +85,7 @@ NOTICES = {
                    "de votre navigateur, pas à votre nom.",
         "logs": "L'application n'enregistre que des compteurs et des erreurs, jamais le texte de vos questions.",
         "back": "Retour à l'assistant",
+        "adults": "Cet assistant est destiné aux voyageurs âgés de 18 ans ou plus.",
     },
     "de": {
         "line": "Fragen werden an die KI Gemini von Google gesendet. Bitte keine persönlichen Daten eingeben.",
@@ -97,6 +103,7 @@ NOTICES = {
                    "Browser verknüpft, nicht mit Ihrem Namen.",
         "logs": "Die Anwendung protokolliert nur Zählungen und Fehler, niemals den Text Ihrer Fragen.",
         "back": "Zurück zum Assistenten",
+        "adults": "Dieser Assistent ist für Gäste ab 18 Jahren bestimmt.",
     },
     "it": {
         "line": "Le domande vengono inviate all'IA Gemini di Google. Non scrivere dati personali.",
@@ -114,6 +121,7 @@ NOTICES = {
                    "tuo nome.",
         "logs": "L'applicazione registra solo conteggi ed errori, mai il testo delle tue domande.",
         "back": "Torna all'assistente",
+        "adults": "Questo assistente è destinato agli ospiti dai 18 anni in su.",
     },
 }
 
@@ -140,5 +148,6 @@ def privacy_notice(prop, accept_languages):
         "link": texts["link"],
         "title": texts["title"],
         "back": texts["back"],
-        "paragraphs": [responsible, texts["google"], texts["personal"], texts["deleted"], texts["logs"]],
+        "paragraphs": [responsible, texts["adults"], texts["google"], texts["personal"],
+                       texts["deleted"], texts["logs"]],
     }

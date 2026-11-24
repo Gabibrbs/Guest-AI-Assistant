@@ -36,6 +36,7 @@ def test_full_notice_has_everything_the_guest_must_know():
     text = " ".join(paragraphs)
 
     assert "Casa A Example" in text and "WhatsApp +351 000 000 001" in text  # who is responsible
+    assert "for guests aged 18 or over" in text                               # adults only
     assert "Gemini API, a Google service" in text                           # where questions go
     assert "Google does not use them to improve its products" in text
     assert "do not write personal data" in text                              # what not to write
@@ -67,6 +68,26 @@ def test_notice_in_the_browser_language_or_english(header, language, words):
     assert notice["language"] == language
     assert words in " ".join(notice["paragraphs"])
     assert "Casa A Example" in notice["paragraphs"][0]
+
+
+@pytest.mark.parametrize("header, words", [
+    ("en", "aged 18 or over"),
+    ("pt-PT", "com 18 anos ou mais"),
+    ("es-ES", "de 18 años o más"),
+    ("fr-FR", "âgés de 18 ans ou plus"),
+    ("de-DE", "ab 18 Jahren"),
+    ("it-IT", "dai 18 anni in su"),
+])
+def test_notice_says_adults_only_in_every_language(header, words):
+    paragraphs = privacy_notice(PROP, accept(header))["paragraphs"]
+
+    assert words in paragraphs[1]  # right after who is responsible
+
+
+def test_privacy_page_says_adults_only(data_folder):
+    html = make_app(data_folder).test_client().get(f"{GUEST}/privacy").get_data(as_text=True)
+
+    assert "This assistant is for guests aged 18 or over." in html
 
 
 def test_every_language_has_every_text():
