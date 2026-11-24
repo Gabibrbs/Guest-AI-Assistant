@@ -50,9 +50,9 @@ def test_markdown_is_detected():
 
 
 def test_expected_sources_exist_in_the_project_documents():
-    from app import DOCUMENTS_FOLDER
+    from evaluate import example_property
 
-    names = {path.name for path in DOCUMENTS_FOLDER.iterdir()}
+    names = {path.name for path in example_property().documents_folder.iterdir()}
     for item in QUESTIONS:
         for source in item["sources"]:
             assert source in names, f"{item['question']}: {source} does not exist"

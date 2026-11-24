@@ -15,10 +15,11 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 
-from app import DOCUMENTS_FOLDER
+from app import EXAMPLE_FOLDER
 from assistant.answer import answer_question
 from assistant.documents import load_folder
 from assistant.gemini_client import GeminiError, create_client, get_model_name
+from assistant.properties import load_properties
 
 PAUSE_SECONDS = 5  # between questions, to stay under the requests-per-minute limit
 
@@ -104,12 +105,19 @@ def check_answer(item, answer):
     }
 
 
+def example_property():
+    """The demo property in exemplo/ (Casa da Ribeira Example): the questions are about its guide."""
+    return next(iter(load_properties(EXAMPLE_FOLDER).values()))
+
+
 def run_evaluation(client, model, documents, questions, numbers=None,
-                   pause_seconds=PAUSE_SECONDS, sleep=time.sleep):
+                   pause_seconds=PAUSE_SECONDS, sleep=time.sleep, prop=None):
     """Ask the questions and return one row (dictionary) per question.
 
     `numbers` chooses which questions to ask (1 = the first); None asks them all.
+    `prop` gives the property's name and "not in the guide" message to the prompt.
     """
+    settings = {"business_name": prop.name, "not_found_message": prop.not_found_message} if prop else {}
     if numbers is None:
         numbers = list(range(1, len(questions) + 1))
 
@@ -143,7 +151,7 @@ def run_evaluation(client, model, documents, questions, numbers=None,
 
         start = time.perf_counter()
         try:
-            answer = answer_question(client, model, documents, item["question"], sleep=sleep_and_record)
+            answer = answer_question(client, model, documents, item["question"], sleep=sleep_and_record, **settings)
         except GeminiError as error:
             code = error_code(error)
             row.update(timing_columns(start, retry_waits))
@@ -255,12 +263,13 @@ def main():
 
     load_dotenv()
     model = get_model_name()
-    documents = load_folder(DOCUMENTS_FOLDER)
+    prop = example_property()
+    documents = load_folder(prop.documents_folder)
     client = create_client()
     print(f"Model: {model} | documents: {len(documents)} | "
           f"questions: {len(numbers) if numbers else len(QUESTIONS)}\n")
 
-    new_rows = run_evaluation(client, model, documents, QUESTIONS, numbers=numbers)
+    new_rows = run_evaluation(client, model, documents, QUESTIONS, numbers=numbers, prop=prop)
 
     # Keep the old rows that worked and put the new ones in their place
     asked = {row["number"] for row in new_rows}

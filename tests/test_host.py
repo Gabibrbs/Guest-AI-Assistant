@@ -1,4 +1,4 @@
-"""Host pages: login with a password, then upload, replace or delete documents.
+"""Host pages: login with a password, the list of properties, then upload, replace or delete documents.
 
 Documents are saved in the documents folder on disk, so the tests check the files too.
 """
@@ -6,7 +6,7 @@ Documents are saved in the documents folder on disk, so the tests check the file
 import io
 
 import pytest
-from conftest import HOST_PASSWORD
+from conftest import GUEST, HOST_GUIDE, HOST_PASSWORD
 from helpers import FakeGeminiClient, make_pdf
 
 import set_host_password
@@ -14,20 +14,10 @@ from app import create_app
 from werkzeug.security import check_password_hash
 
 
-@pytest.fixture
-def documents_folder(tmp_path):
-    folder = tmp_path / "documentos"
-    folder.mkdir()
-    (folder / "the-house.md").write_text("Wi-Fi password: azulejo2026", encoding="utf-8")
-    (folder / "house-rules.md").write_text("Quiet hours from 22:00.", encoding="utf-8")
-    return folder
-
-
 def make_app(documents_folder, *replies):
+    # documents_folder is <data folder>/alojamentos/<slug>/documentos: the data folder is 3 levels up
     fake = FakeGeminiClient(*replies)
-    app = create_app(client=fake, documents_folder=documents_folder,
-                     conversations_folder=documents_folder.parent / "conversas",
-                     limits_file=documents_folder.parent / "dados" / "limites.sqlite3")
+    app = create_app(client=fake, data_folder=documents_folder.parents[2])
     app.config["TESTING"] = True
     return app, fake
 
@@ -42,7 +32,7 @@ def log_in(browser, password=HOST_PASSWORD):
 
 def upload(browser, filename, data):
     return browser.post(
-        "/host/upload",
+        f"{HOST_GUIDE}/upload",
         data={"document": (io.BytesIO(data), filename)},
         content_type="multipart/form-data",
         follow_redirects=True,
@@ -69,13 +59,14 @@ def test_login_page_opens(documents_folder):
     assert "Host login" in html
 
 
-def test_right_password_opens_the_documents_page(documents_folder):
+def test_right_password_opens_the_list_of_properties(documents_folder):
     app, _ = make_app(documents_folder)
 
     html = page_text(log_in(app.test_client()))
 
-    assert "Add or replace a document" in html
-    assert "the-house.md" in html and "house-rules.md" in html
+    assert "Your properties" in html
+    assert "Casa Test Example" in html and "2 documents" in html
+    assert f"http://localhost{GUEST}" in html  # the full guest link
 
 
 @pytest.mark.parametrize("password", ["wrong-password", "", HOST_PASSWORD.upper(), HOST_PASSWORD + " "])
@@ -86,14 +77,14 @@ def test_wrong_password_is_refused(documents_folder, password):
     html = page_text(log_in(browser, password))
 
     assert "Wrong password." in html
-    assert "Add or replace a document" not in html
-    assert browser.get("/host/documents").status_code == 302  # still not logged in
+    assert "Your properties" not in html
+    assert browser.get(HOST_GUIDE).status_code == 302  # still not logged in
 
 
 def test_logout_closes_the_host_area(host):
     host.post("/host/logout")
 
-    response = host.get("/host/documents")
+    response = host.get(HOST_GUIDE)
 
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/host")
@@ -102,7 +93,7 @@ def test_logout_closes_the_host_area(host):
 def test_session_cookie_is_not_sent_from_other_websites(documents_folder):
     app, _ = make_app(documents_folder)
 
-    response = app.test_client().get("/")
+    response = app.test_client().get(GUEST)
 
     assert "SameSite=Lax" in response.headers["Set-Cookie"]
 
@@ -112,10 +103,10 @@ def test_session_cookie_is_not_sent_from_other_websites(documents_folder):
 def test_documents_page_needs_login(documents_folder):
     app, _ = make_app(documents_folder)
 
-    response = app.test_client().get("/host/documents", follow_redirects=True)
+    response = app.test_client().get(HOST_GUIDE, follow_redirects=True)
 
     assert "Please log in as the host." in page_text(response)
-    assert "Add or replace a document" not in page_text(response)
+    assert "Your properties" not in page_text(response)
 
 
 def test_upload_needs_login(documents_folder):
@@ -130,7 +121,7 @@ def test_upload_needs_login(documents_folder):
 def test_delete_needs_login(documents_folder):
     app, _ = make_app(documents_folder)
 
-    app.test_client().post("/host/delete", data={"name": "the-house.md"})
+    app.test_client().post(f"{HOST_GUIDE}/delete", data={"name": "the-house.md"})
 
     assert (documents_folder / "the-house.md").exists()
 
@@ -140,8 +131,8 @@ def test_host_and_guest_sessions_are_separate(documents_folder):
     host_browser, guest_browser = app.test_client(), app.test_client()
     log_in(host_browser)
 
-    assert host_browser.get("/host/documents").status_code == 200
-    assert guest_browser.get("/host/documents").status_code == 302
+    assert host_browser.get(HOST_GUIDE).status_code == 200
+    assert guest_browser.get(HOST_GUIDE).status_code == 302
 
 
 # ---------- Uploading ----------
@@ -156,7 +147,7 @@ def test_uploaded_document_is_saved_and_used_by_guests(documents_folder):
     assert "3 documents" in html
     assert (documents_folder / "breakfast.txt").read_bytes() == b"Breakfast basket: 12 euros per person."
 
-    guest_html = page_text(guest_browser.post("/ask", data={"question": "Breakfast?"}, follow_redirects=True))
+    guest_html = page_text(guest_browser.post(f"{GUEST}/ask", data={"question": "Breakfast?"}, follow_redirects=True))
     assert '<document name="breakfast.txt">' in fake.models.calls[0]["contents"]
     assert "Source: breakfast.txt" in guest_html
 
@@ -166,7 +157,7 @@ def test_uploaded_document_survives_a_restart(documents_folder, host):
 
     restarted, _ = make_app(documents_folder)  # a new app, like after a reload on PythonAnywhere
 
-    assert "breakfast.txt" in page_text(restarted.test_client().get("/"))
+    assert "breakfast.txt" in page_text(restarted.test_client().get(GUEST))
 
 
 def test_upload_pdf(documents_folder):
@@ -175,7 +166,7 @@ def test_upload_pdf(documents_folder):
     log_in(host_browser)
 
     upload(host_browser, "map.pdf", make_pdf("The metro is 5 minutes away"))
-    app.test_client().post("/ask", data={"question": "Metro?"})
+    app.test_client().post(f"{GUEST}/ask", data={"question": "Metro?"})
 
     assert "The metro is 5 minutes away" in fake.models.calls[0]["contents"]
 
@@ -214,7 +205,7 @@ def test_invalid_upload_shows_error_and_is_not_saved(documents_folder, host, fil
 
 
 def test_upload_without_file(host):
-    html = page_text(host.post("/host/upload", data={}, follow_redirects=True))
+    html = page_text(host.post(f"{HOST_GUIDE}/upload", data={}, follow_redirects=True))
 
     assert "Choose a file to upload." in html
 
@@ -241,7 +232,7 @@ def test_file_larger_than_the_limit_is_refused(documents_folder):
 # ---------- Deleting ----------
 
 def test_delete_removes_the_document(documents_folder, host):
-    html = page_text(host.post("/host/delete", data={"name": "house-rules.md"}, follow_redirects=True))
+    html = page_text(host.post(f"{HOST_GUIDE}/delete", data={"name": "house-rules.md"}, follow_redirects=True))
 
     assert "house-rules.md was deleted" in html
     assert "1 documents" in html
@@ -253,7 +244,7 @@ def test_delete_refuses_names_not_in_the_guide(documents_folder, host, name):
     outside = documents_folder.parent / "app.py"
     outside.write_text("must survive", encoding="utf-8")
 
-    html = page_text(host.post("/host/delete", data={"name": name}, follow_redirects=True))
+    html = page_text(host.post(f"{HOST_GUIDE}/delete", data={"name": name}, follow_redirects=True))
 
     assert "That document does not exist." in html
     assert outside.exists()
@@ -261,8 +252,8 @@ def test_delete_refuses_names_not_in_the_guide(documents_folder, host, name):
 
 
 def test_empty_guide_shows_a_warning(documents_folder, host):
-    host.post("/host/delete", data={"name": "house-rules.md"})
-    html = page_text(host.post("/host/delete", data={"name": "the-house.md"}, follow_redirects=True))
+    host.post(f"{HOST_GUIDE}/delete", data={"name": "house-rules.md"})
+    html = page_text(host.post(f"{HOST_GUIDE}/delete", data={"name": "the-house.md"}, follow_redirects=True))
 
     assert "The guide is empty" in html
 
@@ -290,7 +281,7 @@ def test_login_is_blocked_after_5_failed_attempts(documents_folder):
     html = page_text(log_in(browser, HOST_PASSWORD))  # even the right password must wait
 
     assert "Too many failed attempts" in html
-    assert "Add or replace a document" not in html
+    assert "Your properties" not in html
 
 
 def test_blocked_address_does_not_block_other_addresses(documents_folder):
@@ -302,7 +293,7 @@ def test_blocked_address_does_not_block_other_addresses(documents_folder):
     html = page_text(host_browser.post("/host", data={"password": HOST_PASSWORD}, follow_redirects=True,
                                        environ_base={"REMOTE_ADDR": "198.51.100.7"}))
 
-    assert "Add or replace a document" in html
+    assert "Your properties" in html
 
 
 def test_total_failed_attempts_from_many_addresses_are_limited(documents_folder):
@@ -321,7 +312,7 @@ def test_successful_logins_are_not_counted_as_failures(documents_folder):
     app, _ = make_app(documents_folder)
     for _ in range(7):
         browser = app.test_client()
-        assert "Add or replace a document" in page_text(log_in(browser))
+        assert "Your properties" in page_text(log_in(browser))
 
 
 # ---------- Host session ends ----------
@@ -330,7 +321,7 @@ def test_host_session_expires_after_8_hours(documents_folder, host):
     with host.session_transaction() as cookie:
         cookie["host_since"] -= 8 * 60 * 60 + 1
 
-    response = host.get("/host/documents", follow_redirects=True)
+    response = host.get(HOST_GUIDE, follow_redirects=True)
 
     assert "Please log in as the host." in page_text(response)
     with host.session_transaction() as cookie:
@@ -341,7 +332,7 @@ def test_host_session_still_open_before_8_hours(documents_folder, host):
     with host.session_transaction() as cookie:
         cookie["host_since"] -= 8 * 60 * 60 - 60
 
-    assert host.get("/host/documents").status_code == 200
+    assert host.get(HOST_GUIDE).status_code == 200
 
 
 def test_session_cookie_ends_when_the_browser_closes(documents_folder):

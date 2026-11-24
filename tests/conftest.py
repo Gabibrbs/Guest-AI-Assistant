@@ -6,6 +6,38 @@ from werkzeug.security import generate_password_hash
 HOST_PASSWORD = "test-host-password"
 HOST_PASSWORD_HASH = generate_password_hash(HOST_PASSWORD)  # made once: hashing is slow on purpose
 
+# The test property: its slug and the addresses of its guest and host pages
+SLUG = "casa-test-abc123"
+GUEST = f"/p/{SLUG}"
+HOST_GUIDE = f"/host/p/{SLUG}"
+
+TEST_CONFIG = f"""
+[[property]]
+slug = "{SLUG}"
+name = "Casa Test Example"
+color = "#2f6f4e"
+not_found_message = "Please message the host on Airbnb."
+host_contact = "WhatsApp +351 000 000 001"
+"""
+
+
+@pytest.fixture
+def data_folder(tmp_path):
+    """A data folder like dados/: config.toml with one property and a 2-document guide."""
+    folder = tmp_path / "dados"
+    documents = folder / "alojamentos" / SLUG / "documentos"
+    documents.mkdir(parents=True)
+    (documents / "the-house.md").write_text("Wi-Fi password: azulejo2026", encoding="utf-8")
+    (documents / "house-rules.md").write_text("Quiet hours from 22:00.", encoding="utf-8")
+    (folder / "config.toml").write_text(TEST_CONFIG, encoding="utf-8")
+    return folder
+
+
+@pytest.fixture
+def documents_folder(data_folder):
+    """The test property's documents folder."""
+    return data_folder / "alojamentos" / SLUG / "documentos"
+
 
 @pytest.fixture(autouse=True)
 def no_real_api_key(monkeypatch):

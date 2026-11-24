@@ -13,21 +13,26 @@
         </ul>
       </section>
 
-      <form action="{{ url_for('reset') }}" method="post">
+      {% if prop.host_contact %}
+        <section class="panel">
+          <h2>Your host</h2>
+          <p class="contact">{{ prop.host_contact }}</p>
+        </section>
+      {% endif %}
+
+      <form action="{{ url_for('reset', slug=prop.slug) }}" method="post">
         <button type="submit" class="link-button">Start over</button>
       </form>
     </aside>
 
     <main class="chat">
-      {% include "_notices.html" %}
-
       <div class="messages">
         {% if not history %}
           <div class="empty">
             <p>Ask anything about your stay. Try one of these:</p>
             <div class="examples">
               {% for example in example_questions %}
-                <form action="{{ url_for('ask') }}" method="post" data-busy>
+                <form action="{{ url_for('ask', slug=prop.slug) }}" method="post" data-busy>
                   <input type="hidden" name="question" value="{{ example }}">
                   <button type="submit" class="chip">{{ example }}</button>
                 </form>
@@ -43,7 +48,7 @@
           <div class="message assistant">
             <p>{{ turn.answer.text }}</p>
             {% if not turn.answer.found %}
-              <p class="source missing">Not in the house guide · please contact the host</p>
+              <p class="source missing">Not in the house guide · {{ prop.not_found_message }}</p>
             {% elif turn.answer.sources %}
               <p class="source">Source: {{ turn.answer.sources|join(', ') }}</p>
             {% endif %}
@@ -55,7 +60,10 @@
         </div>
       </div>
 
-      <form action="{{ url_for('ask') }}" method="post" class="ask" data-busy>
+      {# Messages (limits, errors) sit right above the question box, so they are seen on a phone too #}
+      <div id="ask">{% include "_notices.html" %}</div>
+
+      <form action="{{ url_for('ask', slug=prop.slug) }}" method="post" class="ask" data-busy>
         <input type="text" name="question" placeholder="Type your question in any language…"
                autocomplete="off" required autofocus>
         <button type="submit" class="button">Ask</button>

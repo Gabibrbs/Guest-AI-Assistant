@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Your properties{% endblock %}
+{% block heading %}Host area{% endblock %}
+{% block subtitle %}Manage the house guides{% endblock %}
+
+{% block content %}
+  <main class="host">
+    {% include "_notices.html" %}
+
+    <section class="panel">
+      <h2>Your properties</h2>
+      <p class="hint">Each property has its own guide and its own link for guests.</p>
+      <ul class="property-list">
+        {% for prop, document_count in properties %}
+          <li>
+            <span class="swatch" style="background: {{ prop.color }}" aria-hidden="true"></span>
+            <div class="property-info">
+              <strong>{{ prop.name }}</strong>
+              <span class="hint">{{ document_count }} documents · Guest link:
+                <span class="link-text">{{ url_for('guest_page', slug=prop.slug, _external=True) }}</span></span>
+              <span class="property-actions">
+                <a class="button secondary small" href="{{ url_for('host_property', slug=prop.slug) }}">Manage guide</a>
+                <a href="{{ url_for('guest_page', slug=prop.slug) }}">Open guest page</a>
+              </span>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <div class="host-links">
+      <span></span>
+      <form action="{{ url_for('host_logout') }}" method="post">
+        <button type="submit" class="link-button">Log out</button>
+      </form>
+    </div>
+  </main>
+{% endblock %}

@@ -1,0 +1,34 @@
+# Configuração de uma instalação: os alojamentos de um cliente.
+#
+# Este ficheiro (exemplo/) é só a demo e vai para o Git. Para uma instalação real, copia a
+# pasta exemplo/ para dados/ (que nunca vai para o Git) e muda lá os valores:
+#     Copy-Item -Recurse exemplo dados
+# Depois de mudar este ficheiro, reinicia a app (no PythonAnywhere: botão "Reload").
+#
+# Cada alojamento é um bloco [[property]]. Os documentos dele ficam em
+#     alojamentos/<slug>/documentos/
+# e o logótipo (opcional) em alojamentos/<slug>/.
+
+[[property]]
+# slug: o nome da pasta e o fim do link (https://.../p/<slug>).
+# Só letras minúsculas, números e hífenes. Num cliente real, acaba com um código
+# aleatório, para ninguém adivinhar o link. Gera um com:
+#     python -c "import secrets; print(secrets.token_hex(3))"
+#
+# ATENÇÃO: NÃO MUDES O SLUG depois de imprimir o QR code ou enviar o link aos hóspedes.
+# O link antigo deixa de funcionar e o QR code impresso fica inútil.
+slug = "casa-da-ribeira-demo"
+
+name = "Casa da Ribeira Example"
+
+# Cor principal (cabeçalho e botões), no formato #rrggbb.
+color = "#1f4e8c"
+
+# Logótipo: PNG ou JPG, até 500 KB, dentro da pasta do alojamento.
+# logo = "logo.png"
+
+# O que o assistente sugere quando o guia não tem a resposta (ele traduz para a língua do hóspede).
+not_found_message = "Please contact the host by phone or WhatsApp."
+
+# Contacto do anfitrião, mostrado na página dos hóspedes.
+host_contact = "Phone and WhatsApp: +351 000 000 000 (demo number)"

@@ -1,7 +1,11 @@
 """Flask web pages.
 
-Guests:  /          the house guide, their conversation and the question box
-Host:    /host      password page; once logged in, upload, replace or delete documents
+Guests:  /p/<slug>         one property's house guide, the guest's conversation, the question box
+Host:    /host             password page; once logged in, the list of properties
+         /host/p/<slug>    upload, replace or delete one property's documents
+
+Everything that belongs to the client (config.toml, documents, logos, conversations,
+counters) lives in the data folder, which is never added to Git. See exemplo/.
 
 Run with:  python app.py   then open http://127.0.0.1:5000
 """
@@ -12,19 +16,21 @@ from functools import wraps
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, flash, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, redirect, render_template, request, send_file, session, url_for
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 
 from assistant import conversations, limits
-from assistant.answer import BUSINESS_NAME, answer_question
+from assistant.answer import answer_question
 from assistant.conversations import write_atomically
 from assistant.documents import SUPPORTED_EXTENSIONS, DocumentError, load_folder, read_document
 from assistant.gemini_client import GeminiError, create_client, get_model_name
+from assistant.properties import color_shades, load_properties
 
-DOCUMENTS_FOLDER = Path(__file__).parent / "documentos"   # the house guide, managed by the host
-CONVERSATIONS_FOLDER = Path(__file__).parent / "conversas"  # one JSON file per guest
-LIMITS_FILE = Path(__file__).parent / "dados" / "limites.sqlite3"  # request counters
+PROJECT_FOLDER = Path(__file__).parent
+EXAMPLE_FOLDER = PROJECT_FOLDER / "exemplo"   # the demo (in Git)
+DEFAULT_DATA_FOLDER = "dados"                 # the client's data (never in Git); DATA_FOLDER in .env changes it
+
 MAX_UPLOAD_MB = 5
 MAX_DOCUMENT_CHARACTERS = 50_000  # all documents go into every prompt, so each one must stay short
 
@@ -74,12 +80,18 @@ def positive_number_setting(name, default):
     return int(value)
 
 
-def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_folder=CONVERSATIONS_FOLDER,
-               limits_file=LIMITS_FILE):
+def data_folder_setting():
+    """The data folder from DATA_FOLDER in .env (default "dados"), next to app.py if relative."""
+    return PROJECT_FOLDER / os.environ.get("DATA_FOLDER", DEFAULT_DATA_FOLDER)
+
+
+def create_app(client=None, data_folder=None):
     """Create the Flask app.
 
     `client` is the Gemini client. The tests pass a fake one; when it is None the real
     client is created on the first question (so the page opens even without an API key).
+    `data_folder` holds config.toml and everything of this client; the tests pass a
+    temporary one.
     """
     app = Flask(__name__)
     # A fixed key: every server process must sign the session cookie the same way.
@@ -97,7 +109,10 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_fol
     guest_questions_per_hour = positive_number_setting("GUEST_QUESTIONS_PER_HOUR", DEFAULT_GUEST_QUESTIONS_PER_HOUR)
     questions_per_day = positive_number_setting("QUESTIONS_PER_DAY", DEFAULT_QUESTIONS_PER_DAY)
 
-    documents_folder = Path(documents_folder)
+    data_folder = Path(data_folder) if data_folder else data_folder_setting()
+    properties = load_properties(data_folder)  # {slug: Property}; stops here if config.toml has a mistake
+    conversations_folder = data_folder / "conversas"
+    limits_file = data_folder / "limites.sqlite3"
     state = {"client": client}
 
     def get_client():
@@ -105,13 +120,22 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_fol
             state["client"] = create_client()
         return state["client"]
 
-    def get_documents():
-        """The house guide, read from disk on every request.
+    def get_property(slug):
+        """The property for this link, or a 404 page. Guests only ever see this one property."""
+        if slug not in properties:
+            abort(404)
+        return properties[slug]
+
+    def get_documents(prop):
+        """The property's house guide, read from disk on every request.
 
         The server runs several processes; reading the folder each time means all of them
         see a document the host has just uploaded or deleted. The files are few and small.
         """
-        return load_folder(documents_folder)
+        return load_folder(prop.documents_folder)
+
+    def guest_conversations(prop):
+        return conversations_folder / prop.slug  # each property keeps its own conversations
 
     def get_guest_id():
         """This browser's guest id, kept in the signed session cookie. Created on first visit."""
@@ -140,29 +164,52 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_fol
         def wrapper(*args, **kwargs):
             if not is_logged_in_host():
                 flash("Please log in as the host.", "error")
-                return redirect(url_for("host_login"))
+                return redirect(url_for("host_home"))
             return view(*args, **kwargs)
         return wrapper
+
+    @app.context_processor
+    def page_settings():
+        """Values every template can use."""
+        return {"color_shades": color_shades}
 
     # ---------- Guest pages ----------
 
     @app.get("/")
-    def index():
-        conversations.delete_old_conversations(conversations_folder)
+    def home():
+        # With one property, the address alone is enough. With several, guests must use
+        # their own link: the page does not list the others.
+        if len(properties) == 1:
+            return redirect(url_for("guest_page", slug=next(iter(properties))))
+        return render_template("use_your_link.html")
+
+    @app.get("/p/<slug>")
+    def guest_page(slug):
+        prop = get_property(slug)
+        for each in properties.values():  # conversations older than 24 hours are deleted
+            conversations.delete_old_conversations(guest_conversations(each))
         return render_template(
             "index.html",
-            business_name=BUSINESS_NAME,
-            documents=list(get_documents()),
-            history=conversations.load_history(conversations_folder, get_guest_id()),
+            prop=prop,
+            documents=list(get_documents(prop)),
+            history=conversations.load_history(guest_conversations(prop), get_guest_id()),
             example_questions=EXAMPLE_QUESTIONS,
         )
 
-    @app.post("/ask")
-    def ask():
+    @app.get("/p/<slug>/logo")
+    def logo(slug):
+        prop = get_property(slug)
+        if prop.logo is None:
+            abort(404)
+        return send_file(prop.logo)
+
+    @app.post("/p/<slug>/ask")
+    def ask(slug):
+        prop = get_property(slug)
         question = request.form.get("question", "").strip()
         if not question:
             flash("Please type a question.", "error")
-            return redirect(url_for("index"))
+            return redirect(url_for("guest_page", slug=slug, _anchor="ask"))
 
         # Limits first, before the paid API call. The guest's own limit is checked first,
         # so a guest who is over it does not use up the daily total for everyone else.
@@ -170,34 +217,40 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_fol
         if not limits.try_use(limits_file, f"guest:{guest_id}", guest_questions_per_hour, limits.HOUR):
             app.logger.warning("A guest reached the hourly question limit.")  # never the question text
             flash(limits.limit_message("guest", request.accept_languages), "error")
-            return redirect(url_for("index"))
+            return redirect(url_for("guest_page", slug=slug, _anchor="ask"))
         if not limits.try_use(limits_file, "all-questions", questions_per_day, limits.DAY):
             app.logger.warning("The daily question limit was reached.")
             flash(limits.limit_message("day", request.accept_languages), "error")
-            return redirect(url_for("index"))
+            return redirect(url_for("guest_page", slug=slug, _anchor="ask"))
 
         try:
-            answer = answer_question(get_client(), get_model_name(), get_documents(), question)
+            answer = answer_question(get_client(), get_model_name(), get_documents(prop), question,
+                                     business_name=prop.name, not_found_message=prop.not_found_message)
         except GeminiError as error:
             flash(str(error), "error")
-            return redirect(url_for("index"))
+            return redirect(url_for("guest_page", slug=slug, _anchor="ask"))
 
-        conversations.add_turn(conversations_folder, guest_id, question, answer)
+        conversations.add_turn(guest_conversations(prop), guest_id, question, answer)
         # The #latest anchor scrolls the page down to the new answer
-        return redirect(url_for("index", _anchor="latest"))
+        return redirect(url_for("guest_page", slug=slug, _anchor="latest"))
 
-    @app.post("/reset")
-    def reset():
-        conversations.clear_history(conversations_folder, get_guest_id())
+    @app.post("/p/<slug>/reset")
+    def reset(slug):
+        prop = get_property(slug)
+        conversations.clear_history(guest_conversations(prop), get_guest_id())
         flash("Your conversation was cleared.", "success")
-        return redirect(url_for("index"))
+        return redirect(url_for("guest_page", slug=slug))
 
     # ---------- Host pages ----------
 
     @app.route("/host", methods=["GET", "POST"])
-    def host_login():
+    def host_home():
+        """The login form, or the list of properties once the host is logged in."""
         if is_logged_in_host():
-            return redirect(url_for("host_documents"))
+            return render_template(
+                "host_home.html",
+                properties=[(prop, len(get_documents(prop))) for prop in properties.values()],
+            )
         if request.method == "POST":
             address = request.remote_addr or "unknown"
             too_many = (
@@ -211,37 +264,39 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_fol
             elif check_password_hash(host_password_hash, request.form.get("password", "")):
                 session["is_host"] = True
                 session["host_since"] = time.time()
-                return redirect(url_for("host_documents"))
+                return redirect(url_for("host_home"))
             else:
                 limits.record(limits_file, f"login:{address}", LOGIN_ADDRESS_PERIOD)
                 limits.record(limits_file, "login:all", limits.HOUR)
                 flash("Wrong password.", "error")
-        return render_template("host_login.html", business_name=BUSINESS_NAME)
+        return render_template("host_login.html")
 
     @app.post("/host/logout")
     def host_logout():
         log_out_host()
         flash("You are logged out.", "success")
-        return redirect(url_for("host_login"))
+        return redirect(url_for("host_home"))
 
-    @app.get("/host/documents")
+    @app.get("/host/p/<slug>")
     @host_required
-    def host_documents():
+    def host_property(slug):
+        prop = get_property(slug)
         return render_template(
-            "host.html",
-            business_name=BUSINESS_NAME,
-            documents=list(get_documents()),
+            "host_property.html",
+            prop=prop,
+            documents=list(get_documents(prop)),
             max_upload_mb=MAX_UPLOAD_MB,
             extensions=", ".join(SUPPORTED_EXTENSIONS),
         )
 
-    @app.post("/host/upload")
+    @app.post("/host/p/<slug>/upload")
     @host_required
-    def host_upload():
+    def host_upload(slug):
+        prop = get_property(slug)
         file = request.files.get("document")
         if file is None or file.filename == "":
             flash("Choose a file to upload.", "error")
-            return redirect(url_for("host_documents"))
+            return redirect(url_for("host_property", slug=slug))
 
         name = clean_filename(file.filename)
         data = file.read()
@@ -249,35 +304,45 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_fol
             text = read_document(name, data)  # checked before saving: a bad file never reaches the guide
         except DocumentError as error:
             flash(str(error), "error")
-            return redirect(url_for("host_documents"))
+            return redirect(url_for("host_property", slug=slug))
 
         if len(text) > MAX_DOCUMENT_CHARACTERS:
             flash(f"{name}: the document is too long. Split it into smaller documents.", "error")
-            return redirect(url_for("host_documents"))
+            return redirect(url_for("host_property", slug=slug))
 
-        path = documents_folder / name
+        path = prop.documents_folder / name
         replaced = path.exists()
         write_atomically(path, data)  # a file with the same name replaces the old one
         flash(f"{name} was {'replaced' if replaced else 'added'}. Guests' answers now use it.", "success")
-        return redirect(url_for("host_documents"))
+        return redirect(url_for("host_property", slug=slug))
 
-    @app.post("/host/delete")
+    @app.post("/host/p/<slug>/delete")
     @host_required
-    def host_delete():
+    def host_delete(slug):
+        prop = get_property(slug)
         name = request.form.get("name", "")
-        # Only a name from the current list can be deleted, never a path like "../app.py".
-        if name not in get_documents():
+        # Only a name from this property's list can be deleted, never a path like "../app.py".
+        if name not in get_documents(prop):
             flash("That document does not exist.", "error")
-            return redirect(url_for("host_documents"))
+            return redirect(url_for("host_property", slug=slug))
 
-        (documents_folder / name).unlink(missing_ok=True)
+        (prop.documents_folder / name).unlink(missing_ok=True)
         flash(f"{name} was deleted.", "success")
-        return redirect(url_for("host_documents"))
+        return redirect(url_for("host_property", slug=slug))
+
+    # ---------- Errors ----------
 
     @app.errorhandler(413)
     def file_too_large(error):
         flash(f"The file is larger than {MAX_UPLOAD_MB} MB.", "error")
-        return redirect(url_for("host_documents"))
+        slug = (request.view_args or {}).get("slug")
+        if slug in properties:
+            return redirect(url_for("host_property", slug=slug))
+        return redirect(url_for("host_home"))
+
+    @app.errorhandler(404)
+    def page_not_found(error):
+        return render_template("not_found.html"), 404
 
     return app
 

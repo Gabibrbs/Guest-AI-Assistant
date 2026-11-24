@@ -27,8 +27,9 @@ CLAUDE.md
 # Course material (kept local, not for publishing)
 referencia_tokio/
 
-# Conversas dos hóspedes (um ficheiro por hóspede, apagadas ao fim de 24 h)
-conversas/
-
-# Contadores dos limites de pedidos (SQLite)
+# Dados do cliente: config.toml, guias carregados, logótipos, conversas e contadores.
+# Nunca vão para o Git. Só a demo (exemplo/) está no repositório.
 dados/
+
+# Pasta antiga das conversas (antes do passo 5 da Fase 2); pode ser apagada
+conversas/

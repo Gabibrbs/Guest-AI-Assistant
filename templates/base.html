@@ -3,15 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ business_name }} · {% block title %}Guest assistant{% endblock %}</title>
+  <title>{% if prop %}{{ prop.name }} · {% endif %}{% block title %}Guest assistant{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% if prop %}
+    {# The property's own color (from config.toml, already checked to be #rrggbb) #}
+    {% set shades = color_shades(prop.color) %}
+    <style>:root { --blue: {{ shades.main }}; --blue-dark: {{ shades.dark }}; --blue-light: {{ shades.light }}; }</style>
+  {% endif %}
 </head>
 <body>
   <header class="top">
     <div class="brand">
-      <span class="tile" aria-hidden="true"></span>
+      {% if prop and prop.logo %}
+        <img class="logo" src="{{ url_for('logo', slug=prop.slug) }}" alt="">
+      {% else %}
+        <span class="tile" aria-hidden="true"></span>
+      {% endif %}
       <div>
-        <h1>{{ business_name }}</h1>
+        <h1>{% block heading %}{{ prop.name if prop else "Guest assistant" }}{% endblock %}</h1>
         <p>{% block subtitle %}Guest assistant · answers only from the house guide, in your language{% endblock %}</p>
       </div>
     </div>

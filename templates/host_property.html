@@ -1,11 +1,17 @@
 {% extends "base.html" %}
 
 {% block title %}House guide{% endblock %}
-{% block subtitle %}Host area · manage the house guide{% endblock %}
+{% block subtitle %}Host area · manage this property's house guide{% endblock %}
 
 {% block content %}
   <main class="host">
+    <p class="back"><a href="{{ url_for('host_home') }}">← All properties</a></p>
     {% include "_notices.html" %}
+
+    <section class="panel">
+      <h2>Link for guests</h2>
+      <p class="link-text">{{ url_for('guest_page', slug=prop.slug, _external=True) }}</p>
+    </section>
 
     <section class="panel">
       <h2>House guide</h2>
@@ -16,7 +22,7 @@
             <li>
               <span class="doc-name">{{ name }}</span>
               {# onsubmit: the browser asks "are you sure?" before deleting (one line of JavaScript) #}
-              <form action="{{ url_for('host_delete') }}" method="post"
+              <form action="{{ url_for('host_delete', slug=prop.slug) }}" method="post"
                     onsubmit="return confirm('Delete this document from the house guide?');">
                 <input type="hidden" name="name" value="{{ name }}">
                 <button type="submit" class="link-button danger">Delete</button>
@@ -32,14 +38,14 @@
     <section class="panel">
       <h2>Add or replace a document</h2>
       <p class="hint">{{ extensions }}, up to {{ max_upload_mb }} MB. A file with the same name replaces the old one.</p>
-      <form action="{{ url_for('host_upload') }}" method="post" enctype="multipart/form-data" class="upload">
+      <form action="{{ url_for('host_upload', slug=prop.slug) }}" method="post" enctype="multipart/form-data" class="upload">
         <input type="file" name="document" accept="{{ extensions|replace(' ', '') }}" required>
         <button type="submit" class="button secondary">Upload</button>
       </form>
     </section>
 
     <div class="host-links">
-      <a href="{{ url_for('index') }}">Open the guest page</a>
+      <a href="{{ url_for('guest_page', slug=prop.slug) }}">Open the guest page</a>
       <form action="{{ url_for('host_logout') }}" method="post">
         <button type="submit" class="link-button">Log out</button>
       </form>

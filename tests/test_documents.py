@@ -7,7 +7,7 @@ from helpers import make_blank_pdf, make_pdf
 
 from assistant.documents import DocumentError, load_folder, read_document
 
-PROJECT_DOCUMENTS = Path(__file__).parent.parent / "documentos"
+PROJECT_DOCUMENTS = Path(__file__).parent.parent / "exemplo" / "alojamentos" / "casa-da-ribeira-demo" / "documentos"
 
 
 # ---------- Valid files ----------
