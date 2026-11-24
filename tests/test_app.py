@@ -21,7 +21,8 @@ def documents_folder(tmp_path):
 def make_app(documents_folder, *replies):
     """App with a fake client that will give `replies`, plus a Flask test browser."""
     fake = FakeGeminiClient(*replies)
-    app = create_app(client=fake, documents_folder=documents_folder)
+    app = create_app(client=fake, documents_folder=documents_folder,
+                     conversations_folder=documents_folder / "conversas")
     app.config["TESTING"] = True
     return app.test_client(), fake
 
@@ -232,3 +233,80 @@ def test_start_over_clears_history_and_uploads(documents_folder):
     assert "My question?" not in html
     assert "extra.txt" not in html
     assert "2 documents" in html
+
+
+# ---------- One conversation per guest ----------
+
+def test_two_guests_have_separate_conversations(documents_folder):
+    anna, fake = make_app(documents_folder, "Answer for Anna.\nSOURCE: the-house.md")
+    bruno = anna.application.test_client()  # a second browser on the same app
+
+    anna.post("/ask", data={"question": "Question from Anna?"})
+    bruno_page = page_text(bruno.get("/"))
+    anna_page = page_text(anna.get("/"))
+
+    assert "Question from Anna?" in anna_page and "Answer for Anna." in anna_page
+    assert "Question from Anna?" not in bruno_page and "Answer for Anna." not in bruno_page
+
+
+def test_start_over_clears_only_that_guests_conversation(documents_folder):
+    anna, _ = make_app(documents_folder, "Answer A.\nSOURCE: the-house.md", "Answer B.\nSOURCE: the-house.md")
+    bruno = anna.application.test_client()
+    anna.post("/ask", data={"question": "Question from Anna?"})
+    bruno.post("/ask", data={"question": "Question from Bruno?"})
+
+    anna.post("/reset")
+
+    assert "Question from Anna?" not in page_text(anna.get("/"))
+    assert "Question from Bruno?" in page_text(bruno.get("/"))
+
+
+def test_conversation_survives_a_new_app_process(documents_folder):
+    """PythonAnywhere runs several processes: another process must see the same conversation."""
+    first_process, _ = make_app(documents_folder, "Saved answer.\nSOURCE: the-house.md")
+    first_process.post("/ask", data={"question": "Saved question?"})
+
+    second_process, _ = make_app(documents_folder)
+    with first_process.session_transaction() as cookie:
+        guest_id = cookie["guest_id"]
+    with second_process.session_transaction() as cookie:
+        cookie["guest_id"] = guest_id
+
+    assert "Saved question?" in page_text(second_process.get("/"))
+
+
+@pytest.mark.parametrize("bad_id", ["../app", r"..\..\.env", "not-a-valid-id", 42])
+def test_invalid_guest_id_in_the_session_is_replaced(documents_folder, bad_id):
+    browser, _ = make_app(documents_folder, "Answer.\nSOURCE: the-house.md")
+    (documents_folder / "app.json").write_text('[{"question": "leaked", "answer": {"text": "x"}}]', encoding="utf-8")
+    with browser.session_transaction() as cookie:
+        cookie["guest_id"] = bad_id
+
+    html = page_text(browser.get("/"))
+    browser.post("/ask", data={"question": "My question?"})
+
+    assert "leaked" not in html
+    with browser.session_transaction() as cookie:
+        assert cookie["guest_id"] != bad_id
+        assert len(cookie["guest_id"]) == 32
+    assert "My question?" in page_text(browser.get("/"))
+
+
+def test_page_shows_only_the_last_20_questions(documents_folder):
+    replies = [f"Answer {n}.\nSOURCE: the-house.md" for n in range(1, 23)]
+    browser, _ = make_app(documents_folder, *replies)
+
+    for n in range(1, 23):
+        browser.post("/ask", data={"question": f"Question number {n}?"})
+    html = page_text(browser.get("/"))
+
+    assert "Question number 1?" not in html and "Question number 2?" not in html
+    assert "Question number 3?" in html and "Question number 22?" in html
+    assert html.count('class="message guest"') == 20
+
+
+def test_app_refuses_to_start_without_secret_key(documents_folder, monkeypatch):
+    monkeypatch.delenv("SECRET_KEY")
+
+    with pytest.raises(RuntimeError, match="SECRET_KEY"):
+        create_app(client=FakeGeminiClient(), documents_folder=documents_folder)

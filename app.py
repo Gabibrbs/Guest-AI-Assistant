@@ -4,18 +4,19 @@ Run with:  python app.py   then open http://127.0.0.1:5000
 """
 
 import os
-import secrets
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, flash, redirect, render_template, request, url_for
+from flask import Flask, flash, redirect, render_template, request, session, url_for
 from werkzeug.utils import secure_filename
 
+from assistant import conversations
 from assistant.answer import BUSINESS_NAME, answer_question
 from assistant.documents import DocumentError, load_folder, read_document
 from assistant.gemini_client import GeminiError, create_client, get_model_name
 
 DOCUMENTS_FOLDER = Path(__file__).parent / "documentos"
+CONVERSATIONS_FOLDER = Path(__file__).parent / "conversas"  # one JSON file per guest
 MAX_UPLOAD_MB = 5
 MAX_DOCUMENT_CHARACTERS = 50_000  # all documents go into every prompt, so each one must stay short
 
@@ -37,24 +38,40 @@ def clean_filename(filename):
     return name + path.suffix.lower()
 
 
-def create_app(client=None, documents_folder=DOCUMENTS_FOLDER):
+def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_folder=CONVERSATIONS_FOLDER):
     """Create the Flask app.
 
     `client` is the Gemini client. The tests pass a fake one; when it is None the real
     client is created on the first question (so the page opens even without an API key).
     """
+    secret_key = os.environ.get("SECRET_KEY")
+    if not secret_key:
+        # Without a fixed key, each server process would sign cookies differently
+        # and guests would lose their conversation.
+        raise RuntimeError(
+            "SECRET_KEY is missing. Add it to the .env file (see .env.example)."
+        )
+
     app = Flask(__name__)
-    app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(16)
+    app.config["SECRET_KEY"] = secret_key
     app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
 
-    # The demo keeps everything in memory: one conversation, no database.
+    # Documents are still kept in memory (step 3 moves uploads to a host page).
+    # Each guest's conversation is saved in its own file: see assistant/conversations.py.
     sample_documents = load_folder(documents_folder)
     state = {
         "client": client,
         "documents": dict(sample_documents),  # {file name: text}
         "uploaded": [],                       # names of the documents uploaded on the page
-        "history": [],                        # [{"question": ..., "answer": Answer}]
     }
+
+    def get_guest_id():
+        """This browser's guest id, kept in the signed session cookie. Created on first visit."""
+        guest_id = session.get("guest_id")
+        if not conversations.is_valid_guest_id(guest_id):
+            guest_id = conversations.new_guest_id()
+            session["guest_id"] = guest_id
+        return guest_id
 
     def get_client():
         if state["client"] is None:
@@ -63,12 +80,13 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER):
 
     @app.get("/")
     def index():
+        conversations.delete_old_conversations(conversations_folder)
         return render_template(
             "index.html",
             business_name=BUSINESS_NAME,
             documents=list(state["documents"]),
             uploaded=state["uploaded"],
-            history=state["history"],
+            history=conversations.load_history(conversations_folder, get_guest_id()),
             example_questions=EXAMPLE_QUESTIONS,
             max_upload_mb=MAX_UPLOAD_MB,
         )
@@ -86,7 +104,7 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER):
             flash(str(error), "error")
             return redirect(url_for("index"))
 
-        state["history"].append({"question": question, "answer": answer})
+        conversations.add_turn(conversations_folder, get_guest_id(), question, answer)
         # The #latest anchor scrolls the page down to the new answer
         return redirect(url_for("index", _anchor="latest"))
 
@@ -118,7 +136,7 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER):
     def reset():
         state["documents"] = dict(sample_documents)
         state["uploaded"] = []
-        state["history"] = []
+        conversations.clear_history(conversations_folder, get_guest_id())
         flash("The conversation and uploaded documents were cleared.", "success")
         return redirect(url_for("index"))
 

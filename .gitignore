@@ -26,3 +26,6 @@ CLAUDE.md
 
 # Course material (kept local, not for publishing)
 referencia_tokio/
+
+# Conversas dos hóspedes (um ficheiro por hóspede, apagadas ao fim de 24 h)
+conversas/
