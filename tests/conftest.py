@@ -24,3 +24,6 @@ def test_settings(monkeypatch):
     """The app refuses to start without these settings, so the tests use fixed ones."""
     monkeypatch.setenv("SECRET_KEY", "test-secret-key")
     monkeypatch.setenv("HOST_PASSWORD_HASH", HOST_PASSWORD_HASH)
+    # The limits use their defaults unless a test sets them (never the values in a real .env)
+    monkeypatch.delenv("GUEST_QUESTIONS_PER_HOUR", raising=False)
+    monkeypatch.delenv("QUESTIONS_PER_DAY", raising=False)

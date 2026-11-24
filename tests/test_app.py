@@ -22,7 +22,8 @@ def make_app(documents_folder, *replies):
     """App with a fake client that will give `replies`, plus a Flask test browser."""
     fake = FakeGeminiClient(*replies)
     app = create_app(client=fake, documents_folder=documents_folder,
-                     conversations_folder=documents_folder / "conversas")
+                     conversations_folder=documents_folder / "conversas",
+                     limits_file=documents_folder / "dados" / "limites.sqlite3")
     app.config["TESTING"] = True
     return app.test_client(), fake
 
@@ -114,7 +115,8 @@ def test_api_error_is_shown_to_the_user(documents_folder):
 def test_missing_api_key_is_shown_to_the_user(documents_folder, monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     app = create_app(client=None, documents_folder=documents_folder,  # no fake: the real client is needed
-                     conversations_folder=documents_folder / "conversas")
+                     conversations_folder=documents_folder / "conversas",
+                     limits_file=documents_folder / "dados" / "limites.sqlite3")
     browser = app.test_client()
 
     html = page_text(browser.post("/ask", data={"question": "Question?"}, follow_redirects=True))
@@ -231,7 +233,8 @@ def test_invalid_guest_id_in_the_session_is_replaced(documents_folder, bad_id):
     assert "My question?" in page_text(browser.get("/"))
 
 
-def test_page_shows_only_the_last_20_questions(documents_folder):
+def test_page_shows_only_the_last_20_questions(documents_folder, monkeypatch):
+    monkeypatch.setenv("GUEST_QUESTIONS_PER_HOUR", "100")  # this test is about the history, not the limit
     replies = [f"Answer {n}.\nSOURCE: the-house.md" for n in range(1, 23)]
     browser, _ = make_app(documents_folder, *replies)
 
@@ -249,4 +252,85 @@ def test_app_refuses_to_start_without_a_required_setting(documents_folder, monke
     monkeypatch.delenv(setting)
 
     with pytest.raises(RuntimeError, match=setting):
+        create_app(client=FakeGeminiClient(), documents_folder=documents_folder)
+
+
+# ---------- Question limits ----------
+
+def test_guest_hourly_limit_stops_questions_before_the_api(documents_folder, monkeypatch):
+    monkeypatch.setenv("GUEST_QUESTIONS_PER_HOUR", "2")
+    browser, fake = make_app(documents_folder, "One.\nSOURCE: the-house.md", "Two.\nSOURCE: the-house.md")
+
+    browser.post("/ask", data={"question": "First?"})
+    browser.post("/ask", data={"question": "Second?"})
+    html = page_text(browser.post("/ask", data={"question": "Third?"}, follow_redirects=True))
+
+    assert "a lot of questions in the last hour" in html
+    assert len(fake.models.calls) == 2  # the third question never reached the API
+    assert "Third?" not in html
+
+
+def test_guest_limit_applies_to_each_guest_separately(documents_folder, monkeypatch):
+    monkeypatch.setenv("GUEST_QUESTIONS_PER_HOUR", "1")
+    anna, fake = make_app(documents_folder, "For Anna.\nSOURCE: the-house.md", "For Bruno.\nSOURCE: the-house.md")
+    bruno = anna.application.test_client()
+
+    anna.post("/ask", data={"question": "Anna asks?"})
+    html = page_text(bruno.post("/ask", data={"question": "Bruno asks?"}, follow_redirects=True))
+
+    assert "For Bruno." in html
+    assert len(fake.models.calls) == 2
+
+
+def test_daily_limit_counts_all_guests_together(documents_folder, monkeypatch):
+    monkeypatch.setenv("QUESTIONS_PER_DAY", "2")
+    first, fake = make_app(documents_folder, "A.\nSOURCE: the-house.md", "B.\nSOURCE: the-house.md")
+    second, third = first.application.test_client(), first.application.test_client()
+
+    first.post("/ask", data={"question": "One?"})
+    second.post("/ask", data={"question": "Two?"})
+    html = page_text(third.post("/ask", data={"question": "Three?"}, follow_redirects=True))
+
+    assert "limit of questions for today" in html
+    assert len(fake.models.calls) == 2
+
+
+def test_limit_message_uses_the_browser_language(documents_folder, monkeypatch):
+    monkeypatch.setenv("QUESTIONS_PER_DAY", "1")
+    browser, _ = make_app(documents_folder, "A.\nSOURCE: the-house.md")
+    browser.post("/ask", data={"question": "One?"})
+
+    html = page_text(browser.post("/ask", data={"question": "Duas?"}, follow_redirects=True,
+                                  headers={"Accept-Language": "pt-PT,pt;q=0.9"}))
+
+    assert "O assistente atingiu o limite de perguntas por hoje." in html
+
+
+def test_empty_questions_do_not_count_towards_the_limit(documents_folder, monkeypatch):
+    monkeypatch.setenv("GUEST_QUESTIONS_PER_HOUR", "1")
+    browser, fake = make_app(documents_folder, "Real answer.\nSOURCE: the-house.md")
+
+    for _ in range(3):
+        browser.post("/ask", data={"question": "   "})
+    html = page_text(browser.post("/ask", data={"question": "Real question?"}, follow_redirects=True))
+
+    assert "Real answer." in html
+
+
+def test_limit_does_not_log_the_question_text(documents_folder, monkeypatch, caplog):
+    monkeypatch.setenv("GUEST_QUESTIONS_PER_HOUR", "1")
+    browser, _ = make_app(documents_folder, "A.\nSOURCE: the-house.md")
+    browser.post("/ask", data={"question": "First?"})
+
+    browser.post("/ask", data={"question": "My room is 3B and my name is Ana Silva"})
+
+    assert "hourly question limit" in caplog.text
+    assert "Ana Silva" not in caplog.text
+
+
+@pytest.mark.parametrize("value", ["0", "-5", "ten", "2.5"])
+def test_invalid_limit_setting_stops_the_app(documents_folder, monkeypatch, value):
+    monkeypatch.setenv("QUESTIONS_PER_DAY", value)
+
+    with pytest.raises(RuntimeError, match="QUESTIONS_PER_DAY"):
         create_app(client=FakeGeminiClient(), documents_folder=documents_folder)

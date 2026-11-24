@@ -29,3 +29,6 @@ referencia_tokio/
 
 # Conversas dos hóspedes (um ficheiro por hóspede, apagadas ao fim de 24 h)
 conversas/
+
+# Contadores dos limites de pedidos (SQLite)
+dados/

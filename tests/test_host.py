@@ -26,7 +26,8 @@ def documents_folder(tmp_path):
 def make_app(documents_folder, *replies):
     fake = FakeGeminiClient(*replies)
     app = create_app(client=fake, documents_folder=documents_folder,
-                     conversations_folder=documents_folder.parent / "conversas")
+                     conversations_folder=documents_folder.parent / "conversas",
+                     limits_file=documents_folder.parent / "dados" / "limites.sqlite3")
     app.config["TESTING"] = True
     return app, fake
 
@@ -276,3 +277,78 @@ def test_password_script_makes_a_line_the_app_accepts():
     saved_hash = line.split("=", 1)[1].strip("'")
     assert check_password_hash(saved_hash, "my-new-password")
     assert not check_password_hash(saved_hash, "another-password")
+
+
+# ---------- Too many failed logins ----------
+
+def test_login_is_blocked_after_5_failed_attempts(documents_folder):
+    app, _ = make_app(documents_folder)
+    browser = app.test_client()
+    for _ in range(5):
+        assert "Wrong password." in page_text(log_in(browser, "guess"))
+
+    html = page_text(log_in(browser, HOST_PASSWORD))  # even the right password must wait
+
+    assert "Too many failed attempts" in html
+    assert "Add or replace a document" not in html
+
+
+def test_blocked_address_does_not_block_other_addresses(documents_folder):
+    app, _ = make_app(documents_folder)
+    attacker, host_browser = app.test_client(), app.test_client()
+    for _ in range(5):
+        attacker.post("/host", data={"password": "guess"}, environ_base={"REMOTE_ADDR": "203.0.113.9"})
+
+    html = page_text(host_browser.post("/host", data={"password": HOST_PASSWORD}, follow_redirects=True,
+                                       environ_base={"REMOTE_ADDR": "198.51.100.7"}))
+
+    assert "Add or replace a document" in html
+
+
+def test_total_failed_attempts_from_many_addresses_are_limited(documents_folder):
+    app, _ = make_app(documents_folder)
+    browser = app.test_client()
+    for number in range(20):  # 20 different addresses, 1 attempt each
+        browser.post("/host", data={"password": "guess"}, environ_base={"REMOTE_ADDR": f"203.0.113.{number}"})
+
+    html = page_text(browser.post("/host", data={"password": HOST_PASSWORD}, follow_redirects=True,
+                                  environ_base={"REMOTE_ADDR": "198.51.100.7"}))
+
+    assert "Too many failed attempts" in html
+
+
+def test_successful_logins_are_not_counted_as_failures(documents_folder):
+    app, _ = make_app(documents_folder)
+    for _ in range(7):
+        browser = app.test_client()
+        assert "Add or replace a document" in page_text(log_in(browser))
+
+
+# ---------- Host session ends ----------
+
+def test_host_session_expires_after_8_hours(documents_folder, host):
+    with host.session_transaction() as cookie:
+        cookie["host_since"] -= 8 * 60 * 60 + 1
+
+    response = host.get("/host/documents", follow_redirects=True)
+
+    assert "Please log in as the host." in page_text(response)
+    with host.session_transaction() as cookie:
+        assert "is_host" not in cookie
+
+
+def test_host_session_still_open_before_8_hours(documents_folder, host):
+    with host.session_transaction() as cookie:
+        cookie["host_since"] -= 8 * 60 * 60 - 60
+
+    assert host.get("/host/documents").status_code == 200
+
+
+def test_session_cookie_ends_when_the_browser_closes(documents_folder):
+    app, _ = make_app(documents_folder)
+    browser = app.test_client()
+
+    response = browser.post("/host", data={"password": HOST_PASSWORD})
+
+    cookie = response.headers["Set-Cookie"]
+    assert "Expires" not in cookie and "Max-Age" not in cookie  # no date: deleted when the browser closes

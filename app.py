@@ -7,6 +7,7 @@ Run with:  python app.py   then open http://127.0.0.1:5000
 """
 
 import os
+import time
 from functools import wraps
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from flask import Flask, flash, redirect, render_template, request, session, url
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 
-from assistant import conversations
+from assistant import conversations, limits
 from assistant.answer import BUSINESS_NAME, answer_question
 from assistant.conversations import write_atomically
 from assistant.documents import SUPPORTED_EXTENSIONS, DocumentError, load_folder, read_document
@@ -23,8 +24,20 @@ from assistant.gemini_client import GeminiError, create_client, get_model_name
 
 DOCUMENTS_FOLDER = Path(__file__).parent / "documentos"   # the house guide, managed by the host
 CONVERSATIONS_FOLDER = Path(__file__).parent / "conversas"  # one JSON file per guest
+LIMITS_FILE = Path(__file__).parent / "dados" / "limites.sqlite3"  # request counters
 MAX_UPLOAD_MB = 5
 MAX_DOCUMENT_CHARACTERS = 50_000  # all documents go into every prompt, so each one must stay short
+
+# Limits for questions: the defaults, changed in .env (GUEST_QUESTIONS_PER_HOUR, QUESTIONS_PER_DAY)
+DEFAULT_GUEST_QUESTIONS_PER_HOUR = 20
+DEFAULT_QUESTIONS_PER_DAY = 200
+
+# Failed host logins: a guesser is stopped long before finding the password
+LOGIN_FAILURES_PER_ADDRESS = 5     # per IP address, every 15 minutes
+LOGIN_FAILURES_TOTAL = 20          # from everyone together, every hour
+LOGIN_ADDRESS_PERIOD = 15 * 60
+
+HOST_SESSION_SECONDS = 8 * 60 * 60  # the host is logged out after 8 hours
 
 EXAMPLE_QUESTIONS = [
     "What is the Wi-Fi password?",
@@ -51,7 +64,18 @@ def required_setting(name):
     return value
 
 
-def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_folder=CONVERSATIONS_FOLDER):
+def positive_number_setting(name, default):
+    """A whole number above zero from .env, or `default` when it is not set."""
+    value = os.environ.get(name, "").strip()
+    if not value:
+        return default
+    if not value.isdigit() or int(value) < 1:
+        raise RuntimeError(f"{name} must be a whole number above 0, not {value!r}.")
+    return int(value)
+
+
+def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_folder=CONVERSATIONS_FOLDER,
+               limits_file=LIMITS_FILE):
     """Create the Flask app.
 
     `client` is the Gemini client. The tests pass a fake one; when it is None the real
@@ -66,6 +90,12 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_fol
     # The browser does not send the cookie with forms posted from other websites,
     # so another site cannot make a logged-in host delete documents.
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    # The session cookie has no expiry date, so the browser deletes it when it closes
+    # (Flask's default, written here so it is clear). The host's 8 hours are checked below.
+    app.config["SESSION_PERMANENT"] = False
+
+    guest_questions_per_hour = positive_number_setting("GUEST_QUESTIONS_PER_HOUR", DEFAULT_GUEST_QUESTIONS_PER_HOUR)
+    questions_per_day = positive_number_setting("QUESTIONS_PER_DAY", DEFAULT_QUESTIONS_PER_DAY)
 
     documents_folder = Path(documents_folder)
     state = {"client": client}
@@ -91,11 +121,24 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_fol
             session["guest_id"] = guest_id
         return guest_id
 
+    def is_logged_in_host():
+        """True if this browser logged in as the host less than 8 hours ago."""
+        if not session.get("is_host"):
+            return False
+        if time.time() - session.get("host_since", 0) > HOST_SESSION_SECONDS:
+            log_out_host()
+            return False
+        return True
+
+    def log_out_host():
+        session.pop("is_host", None)
+        session.pop("host_since", None)
+
     def host_required(view):
         """Pages and actions only the logged-in host may use."""
         @wraps(view)
         def wrapper(*args, **kwargs):
-            if not session.get("is_host"):
+            if not is_logged_in_host():
                 flash("Please log in as the host.", "error")
                 return redirect(url_for("host_login"))
             return view(*args, **kwargs)
@@ -121,13 +164,25 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_fol
             flash("Please type a question.", "error")
             return redirect(url_for("index"))
 
+        # Limits first, before the paid API call. The guest's own limit is checked first,
+        # so a guest who is over it does not use up the daily total for everyone else.
+        guest_id = get_guest_id()
+        if not limits.try_use(limits_file, f"guest:{guest_id}", guest_questions_per_hour, limits.HOUR):
+            app.logger.warning("A guest reached the hourly question limit.")  # never the question text
+            flash(limits.limit_message("guest", request.accept_languages), "error")
+            return redirect(url_for("index"))
+        if not limits.try_use(limits_file, "all-questions", questions_per_day, limits.DAY):
+            app.logger.warning("The daily question limit was reached.")
+            flash(limits.limit_message("day", request.accept_languages), "error")
+            return redirect(url_for("index"))
+
         try:
             answer = answer_question(get_client(), get_model_name(), get_documents(), question)
         except GeminiError as error:
             flash(str(error), "error")
             return redirect(url_for("index"))
 
-        conversations.add_turn(conversations_folder, get_guest_id(), question, answer)
+        conversations.add_turn(conversations_folder, guest_id, question, answer)
         # The #latest anchor scrolls the page down to the new answer
         return redirect(url_for("index", _anchor="latest"))
 
@@ -141,19 +196,31 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_fol
 
     @app.route("/host", methods=["GET", "POST"])
     def host_login():
-        if session.get("is_host"):
+        if is_logged_in_host():
             return redirect(url_for("host_documents"))
         if request.method == "POST":
-            password = request.form.get("password", "")
-            if check_password_hash(host_password_hash, password):
+            address = request.remote_addr or "unknown"
+            too_many = (
+                limits.used(limits_file, f"login:{address}", LOGIN_ADDRESS_PERIOD) >= LOGIN_FAILURES_PER_ADDRESS
+                or limits.used(limits_file, "login:all", limits.HOUR) >= LOGIN_FAILURES_TOTAL
+            )
+            if too_many:
+                # The password is not even checked, so guessing stops here.
+                app.logger.warning("Host login blocked after too many failed attempts.")
+                flash("Too many failed attempts. Please wait 15 minutes and try again.", "error")
+            elif check_password_hash(host_password_hash, request.form.get("password", "")):
                 session["is_host"] = True
+                session["host_since"] = time.time()
                 return redirect(url_for("host_documents"))
-            flash("Wrong password.", "error")
+            else:
+                limits.record(limits_file, f"login:{address}", LOGIN_ADDRESS_PERIOD)
+                limits.record(limits_file, "login:all", limits.HOUR)
+                flash("Wrong password.", "error")
         return render_template("host_login.html", business_name=BUSINESS_NAME)
 
     @app.post("/host/logout")
     def host_logout():
-        session.pop("is_host", None)
+        log_out_host()
         flash("You are logged out.", "success")
         return redirect(url_for("host_login"))
 
