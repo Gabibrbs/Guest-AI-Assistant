@@ -1,22 +1,6 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ business_name }} · Guest assistant</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body>
-  <header class="top">
-    <div class="brand">
-      <span class="tile" aria-hidden="true"></span>
-      <div>
-        <h1>{{ business_name }}</h1>
-        <p>Guest assistant · answers only from the house guide, in your language</p>
-      </div>
-    </div>
-  </header>
+{% extends "base.html" %}
 
+{% block content %}
   <div class="layout">
     <aside class="sidebar">
       <section class="panel">
@@ -24,21 +8,9 @@
         <p class="hint">{{ documents|length }} documents</p>
         <ul class="doc-list">
           {% for name in documents %}
-            <li>
-              <span class="doc-name">{{ name }}</span>
-              {% if name in uploaded %}<span class="tag">uploaded</span>{% endif %}
-            </li>
+            <li><span class="doc-name">{{ name }}</span></li>
           {% endfor %}
         </ul>
-      </section>
-
-      <section class="panel">
-        <h2>Add your own document</h2>
-        <p class="hint">.txt, .md or .pdf, up to {{ max_upload_mb }} MB</p>
-        <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" class="upload">
-          <input type="file" name="document" accept=".txt,.md,.pdf" required>
-          <button type="submit" class="button secondary">Upload</button>
-        </form>
       </section>
 
       <form action="{{ url_for('reset') }}" method="post">
@@ -47,11 +19,7 @@
     </aside>
 
     <main class="chat">
-      {% with messages = get_flashed_messages(with_categories=true) %}
-        {% for category, message in messages %}
-          <p class="notice {{ category }}">{{ message }}</p>
-        {% endfor %}
-      {% endwith %}
+      {% include "_notices.html" %}
 
       <div class="messages">
         {% if not history %}
@@ -105,5 +73,4 @@
       });
     });
   </script>
-</body>
-</html>
+{% endblock %}

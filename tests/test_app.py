@@ -1,4 +1,4 @@
-"""Flask routes: home page, asking a question, uploading a document, starting over.
+"""Guest pages: home page, asking a question, starting over, one conversation per guest.
 
 Each test builds its own app with a fake Gemini client and a small documents folder.
 """
@@ -6,7 +6,7 @@ Each test builds its own app with a fake Gemini client and a small documents fol
 import io
 
 import pytest
-from helpers import FakeGeminiClient, api_error, make_pdf
+from helpers import FakeGeminiClient, api_error
 
 from app import clean_filename, create_app
 
@@ -113,7 +113,8 @@ def test_api_error_is_shown_to_the_user(documents_folder):
 
 def test_missing_api_key_is_shown_to_the_user(documents_folder, monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    app = create_app(client=None, documents_folder=documents_folder)  # no fake: the real client is needed
+    app = create_app(client=None, documents_folder=documents_folder,  # no fake: the real client is needed
+                     conversations_folder=documents_folder / "conversas")
     browser = app.test_client()
 
     html = page_text(browser.post("/ask", data={"question": "Question?"}, follow_redirects=True))
@@ -121,38 +122,7 @@ def test_missing_api_key_is_shown_to_the_user(documents_folder, monkeypatch):
     assert "GEMINI_API_KEY is not set" in html
 
 
-# ---------- Uploading ----------
-
-def upload(browser, filename, data):
-    return browser.post(
-        "/upload",
-        data={"document": (io.BytesIO(data), filename)},
-        content_type="multipart/form-data",
-        follow_redirects=True,
-    )
-
-
-def test_uploaded_text_document_is_listed_and_used(documents_folder):
-    browser, fake = make_app(documents_folder, "Breakfast costs 12 euros.\nSOURCE: breakfast.txt")
-
-    html = page_text(upload(browser, "breakfast.txt", b"Breakfast basket: 12 euros per person."))
-    assert "breakfast.txt was added" in html
-    assert "3 documents" in html
-    assert "uploaded" in html
-
-    html = page_text(browser.post("/ask", data={"question": "Breakfast?"}, follow_redirects=True))
-    assert '<document name="breakfast.txt">' in fake.models.calls[0]["contents"]
-    assert "Source: breakfast.txt" in html
-
-
-def test_upload_pdf(documents_folder):
-    browser, fake = make_app(documents_folder, "Ok.\nSOURCE: map.pdf")
-
-    upload(browser, "map.pdf", make_pdf("The metro is 5 minutes away"))
-    browser.post("/ask", data={"question": "Metro?"})
-
-    assert "The metro is 5 minutes away" in fake.models.calls[0]["contents"]
-
+# ---------- File names ----------
 
 @pytest.mark.parametrize(
     "original, cleaned",
@@ -167,72 +137,41 @@ def test_clean_filename(original, cleaned):
     assert clean_filename(original) == cleaned
 
 
-@pytest.mark.parametrize("original, cleaned", [("../Guia da casa.txt", "Guia_da_casa.txt"), ("指南.txt", "document.txt")])
-def test_uploaded_file_name_is_cleaned(documents_folder, original, cleaned):
-    browser, _ = make_app(documents_folder)
-
-    html = page_text(upload(browser, original, b"Some text"))
-
-    assert f"{cleaned} was added" in html
-
-
-@pytest.mark.parametrize(
-    "filename, data, message",
-    [
-        ("empty.txt", b"", "the file has no text"),
-        ("photo.jpg", b"image bytes", "only .md, .txt and .pdf"),
-        ("broken.pdf", b"not a pdf", "the PDF could not be read"),
-    ],
-)
-def test_invalid_upload_shows_error_and_is_not_added(documents_folder, filename, data, message):
-    browser, _ = make_app(documents_folder)
-
-    html = page_text(upload(browser, filename, data))
-
-    assert message in html
-    assert "2 documents" in html
-
-
-def test_upload_without_file(documents_folder):
-    browser, _ = make_app(documents_folder)
-
-    html = page_text(browser.post("/upload", data={}, follow_redirects=True))
-
-    assert "Choose a file to upload." in html
-
-
-def test_document_with_too_much_text_is_refused(documents_folder):
-    browser, _ = make_app(documents_folder)
-
-    html = page_text(upload(browser, "long.txt", b"a" * 50_001))
-
-    assert "too long for this demo" in html
-    assert "2 documents" in html
-
-
-def test_file_larger_than_the_limit_is_refused(documents_folder):
-    app = create_app(client=FakeGeminiClient(), documents_folder=documents_folder)
-    app.config["MAX_CONTENT_LENGTH"] = 100  # bytes, so the test file can stay small
-    browser = app.test_client()
-
-    html = page_text(upload(browser, "big.txt", b"a" * 1000))
-
-    assert "larger than" in html
-    assert "2 documents" in html
-
-
 # ---------- Starting over ----------
 
-def test_start_over_clears_history_and_uploads(documents_folder):
+def test_start_over_clears_only_the_conversation(documents_folder):
     browser, _ = make_app(documents_folder, "Answer.\nSOURCE: the-house.md")
-    upload(browser, "extra.txt", b"Extra text")
     browser.post("/ask", data={"question": "My question?"})
 
     html = page_text(browser.post("/reset", follow_redirects=True))
 
     assert "My question?" not in html
-    assert "extra.txt" not in html
-    assert "2 documents" in html
+    assert "Your conversation was cleared." in html
+    assert "2 documents" in html  # the house guide is not touched
+
+
+# ---------- Guests cannot change the guide ----------
+
+def test_guest_page_has_no_upload(documents_folder):
+    browser, _ = make_app(documents_folder)
+
+    html = page_text(browser.get("/"))
+
+    assert 'type="file"' not in html
+    assert "Upload" not in html
+
+
+def test_old_guest_upload_address_no_longer_exists(documents_folder):
+    browser, _ = make_app(documents_folder)
+
+    response = browser.post(
+        "/upload",
+        data={"document": (io.BytesIO(b"Fake rule"), "rules.txt")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 404
+    assert not (documents_folder / "rules.txt").exists()
 
 
 # ---------- One conversation per guest ----------
@@ -305,8 +244,9 @@ def test_page_shows_only_the_last_20_questions(documents_folder):
     assert html.count('class="message guest"') == 20
 
 
-def test_app_refuses_to_start_without_secret_key(documents_folder, monkeypatch):
-    monkeypatch.delenv("SECRET_KEY")
+@pytest.mark.parametrize("setting", ["SECRET_KEY", "HOST_PASSWORD_HASH"])
+def test_app_refuses_to_start_without_a_required_setting(documents_folder, monkeypatch, setting):
+    monkeypatch.delenv(setting)
 
-    with pytest.raises(RuntimeError, match="SECRET_KEY"):
+    with pytest.raises(RuntimeError, match=setting):
         create_app(client=FakeGeminiClient(), documents_folder=documents_folder)

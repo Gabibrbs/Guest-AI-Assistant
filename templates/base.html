@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ business_name }} · {% block title %}Guest assistant{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="tile" aria-hidden="true"></span>
+      <div>
+        <h1>{{ business_name }}</h1>
+        <p>{% block subtitle %}Guest assistant · answers only from the house guide, in your language{% endblock %}</p>
+      </div>
+    </div>
+  </header>
+
+  {% block content %}{% endblock %}
+</body>
+</html>

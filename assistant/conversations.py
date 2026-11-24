@@ -64,20 +64,20 @@ def add_turn(folder, guest_id, question, answer):
     history = history[-MAX_TURNS:]
 
     saved = [{"question": turn["question"], "answer": asdict(turn["answer"])} for turn in history]
-    write_atomically(conversation_path(folder, guest_id), json.dumps(saved, ensure_ascii=False))
+    write_atomically(conversation_path(folder, guest_id), json.dumps(saved, ensure_ascii=False).encode("utf-8"))
 
 
-def write_atomically(path, text):
-    """Write the whole file or nothing.
+def write_atomically(path, data):
+    """Write the whole file (bytes) or nothing. Also used for the host's documents.
 
-    The text goes first to a temporary file in the same folder, and os.replace then swaps
+    The data goes first to a temporary file in the same folder, and os.replace then swaps
     it in one step. If the server stops halfway, the old file is still complete.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     handle, temporary = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
-        with os.fdopen(handle, "w", encoding="utf-8") as file:
-            file.write(text)
+        with os.fdopen(handle, "wb") as file:
+            file.write(data)
         os.replace(temporary, path)
     except BaseException:
         os.remove(temporary)

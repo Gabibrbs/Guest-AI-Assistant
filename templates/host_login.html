@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}Host login{% endblock %}
+{% block subtitle %}Host area · manage the house guide{% endblock %}
+
+{% block content %}
+  <main class="host">
+    {% include "_notices.html" %}
+
+    <section class="panel">
+      <h2>Host login</h2>
+      <p class="hint">Only the host can change the house guide.</p>
+      <form action="{{ url_for('host_login') }}" method="post" class="stack">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required autofocus>
+        <button type="submit" class="button">Log in</button>
+      </form>
+    </section>
+  </main>
+{% endblock %}

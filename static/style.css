@@ -81,14 +81,6 @@ body {
 }
 .doc-list li:first-child { border-top: none; }
 .doc-name { overflow-wrap: anywhere; }
-.tag {
-  flex: none;
-  background: var(--green-bg);
-  color: var(--green-text);
-  border-radius: 999px;
-  padding: 1px 8px;
-  font-size: 0.75rem;
-}
 
 .upload { display: flex; flex-direction: column; gap: 10px; }
 .upload input[type="file"] { font-size: 0.85rem; max-width: 100%; }
@@ -195,10 +187,28 @@ button:disabled { opacity: 0.6; cursor: wait; }
 }
 .ask input:focus { outline: 2px solid var(--blue-light); border-color: var(--blue); }
 
+/* ---------- Host area ---------- */
+.host { max-width: 640px; margin: 24px auto; padding: 0 24px; }
+.host .notice { margin: 0 0 16px; }
+.stack { display: flex; flex-direction: column; gap: 8px; }
+.stack label { font-size: 0.9rem; font-weight: 600; }
+.stack input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+}
+.stack input:focus { outline: 2px solid var(--blue-light); border-color: var(--blue); }
+.stack .button { align-self: flex-start; }
+.link-button.danger { color: var(--red-text); }
+.host-links { display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; }
+.host-links a { color: var(--blue); }
+
 /* ---------- Narrow screens: chat first, documents below ---------- */
 @media (max-width: 800px) {
   .layout { grid-template-columns: 1fr; padding: 0 16px; margin: 16px auto; }
   .chat { order: -1; min-height: 60vh; }
   .message { max-width: 92%; }
   .top { padding: 14px 16px; }
+  .host { padding: 0 16px; margin: 16px auto; }
 }

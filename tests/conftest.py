@@ -1,6 +1,10 @@
 """Settings that apply to every test."""
 
 import pytest
+from werkzeug.security import generate_password_hash
+
+HOST_PASSWORD = "test-host-password"
+HOST_PASSWORD_HASH = generate_password_hash(HOST_PASSWORD)  # made once: hashing is slow on purpose
 
 
 @pytest.fixture(autouse=True)
@@ -16,6 +20,7 @@ def no_real_waiting(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def test_secret_key(monkeypatch):
-    """The app refuses to start without SECRET_KEY, so the tests use a fixed one."""
+def test_settings(monkeypatch):
+    """The app refuses to start without these settings, so the tests use fixed ones."""
     monkeypatch.setenv("SECRET_KEY", "test-secret-key")
+    monkeypatch.setenv("HOST_PASSWORD_HASH", HOST_PASSWORD_HASH)

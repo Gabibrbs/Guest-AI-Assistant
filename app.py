@@ -1,21 +1,27 @@
-"""Flask web page: document list, chat history, question box and upload button.
+"""Flask web pages.
+
+Guests:  /          the house guide, their conversation and the question box
+Host:    /host      password page; once logged in, upload, replace or delete documents
 
 Run with:  python app.py   then open http://127.0.0.1:5000
 """
 
 import os
+from functools import wraps
 from pathlib import Path
 
 from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 
 from assistant import conversations
 from assistant.answer import BUSINESS_NAME, answer_question
-from assistant.documents import DocumentError, load_folder, read_document
+from assistant.conversations import write_atomically
+from assistant.documents import SUPPORTED_EXTENSIONS, DocumentError, load_folder, read_document
 from assistant.gemini_client import GeminiError, create_client, get_model_name
 
-DOCUMENTS_FOLDER = Path(__file__).parent / "documentos"
+DOCUMENTS_FOLDER = Path(__file__).parent / "documentos"   # the house guide, managed by the host
 CONVERSATIONS_FOLDER = Path(__file__).parent / "conversas"  # one JSON file per guest
 MAX_UPLOAD_MB = 5
 MAX_DOCUMENT_CHARACTERS = 50_000  # all documents go into every prompt, so each one must stay short
@@ -38,32 +44,44 @@ def clean_filename(filename):
     return name + path.suffix.lower()
 
 
+def required_setting(name):
+    value = os.environ.get(name)
+    if not value:
+        raise RuntimeError(f"{name} is missing. Add it to the .env file (see .env.example).")
+    return value
+
+
 def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_folder=CONVERSATIONS_FOLDER):
     """Create the Flask app.
 
     `client` is the Gemini client. The tests pass a fake one; when it is None the real
     client is created on the first question (so the page opens even without an API key).
     """
-    secret_key = os.environ.get("SECRET_KEY")
-    if not secret_key:
-        # Without a fixed key, each server process would sign cookies differently
-        # and guests would lose their conversation.
-        raise RuntimeError(
-            "SECRET_KEY is missing. Add it to the .env file (see .env.example)."
-        )
-
     app = Flask(__name__)
-    app.config["SECRET_KEY"] = secret_key
+    # A fixed key: every server process must sign the session cookie the same way.
+    app.config["SECRET_KEY"] = required_setting("SECRET_KEY")
+    # Only the hash of the host password is stored (create it with set_host_password.py).
+    host_password_hash = required_setting("HOST_PASSWORD_HASH")
     app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
+    # The browser does not send the cookie with forms posted from other websites,
+    # so another site cannot make a logged-in host delete documents.
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
-    # Documents are still kept in memory (step 3 moves uploads to a host page).
-    # Each guest's conversation is saved in its own file: see assistant/conversations.py.
-    sample_documents = load_folder(documents_folder)
-    state = {
-        "client": client,
-        "documents": dict(sample_documents),  # {file name: text}
-        "uploaded": [],                       # names of the documents uploaded on the page
-    }
+    documents_folder = Path(documents_folder)
+    state = {"client": client}
+
+    def get_client():
+        if state["client"] is None:
+            state["client"] = create_client()
+        return state["client"]
+
+    def get_documents():
+        """The house guide, read from disk on every request.
+
+        The server runs several processes; reading the folder each time means all of them
+        see a document the host has just uploaded or deleted. The files are few and small.
+        """
+        return load_folder(documents_folder)
 
     def get_guest_id():
         """This browser's guest id, kept in the signed session cookie. Created on first visit."""
@@ -73,10 +91,17 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_fol
             session["guest_id"] = guest_id
         return guest_id
 
-    def get_client():
-        if state["client"] is None:
-            state["client"] = create_client()
-        return state["client"]
+    def host_required(view):
+        """Pages and actions only the logged-in host may use."""
+        @wraps(view)
+        def wrapper(*args, **kwargs):
+            if not session.get("is_host"):
+                flash("Please log in as the host.", "error")
+                return redirect(url_for("host_login"))
+            return view(*args, **kwargs)
+        return wrapper
+
+    # ---------- Guest pages ----------
 
     @app.get("/")
     def index():
@@ -84,11 +109,9 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_fol
         return render_template(
             "index.html",
             business_name=BUSINESS_NAME,
-            documents=list(state["documents"]),
-            uploaded=state["uploaded"],
+            documents=list(get_documents()),
             history=conversations.load_history(conversations_folder, get_guest_id()),
             example_questions=EXAMPLE_QUESTIONS,
-            max_upload_mb=MAX_UPLOAD_MB,
         )
 
     @app.post("/ask")
@@ -99,7 +122,7 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_fol
             return redirect(url_for("index"))
 
         try:
-            answer = answer_question(get_client(), get_model_name(), state["documents"], question)
+            answer = answer_question(get_client(), get_model_name(), get_documents(), question)
         except GeminiError as error:
             flash(str(error), "error")
             return redirect(url_for("index"))
@@ -108,42 +131,86 @@ def create_app(client=None, documents_folder=DOCUMENTS_FOLDER, conversations_fol
         # The #latest anchor scrolls the page down to the new answer
         return redirect(url_for("index", _anchor="latest"))
 
-    @app.post("/upload")
-    def upload():
+    @app.post("/reset")
+    def reset():
+        conversations.clear_history(conversations_folder, get_guest_id())
+        flash("Your conversation was cleared.", "success")
+        return redirect(url_for("index"))
+
+    # ---------- Host pages ----------
+
+    @app.route("/host", methods=["GET", "POST"])
+    def host_login():
+        if session.get("is_host"):
+            return redirect(url_for("host_documents"))
+        if request.method == "POST":
+            password = request.form.get("password", "")
+            if check_password_hash(host_password_hash, password):
+                session["is_host"] = True
+                return redirect(url_for("host_documents"))
+            flash("Wrong password.", "error")
+        return render_template("host_login.html", business_name=BUSINESS_NAME)
+
+    @app.post("/host/logout")
+    def host_logout():
+        session.pop("is_host", None)
+        flash("You are logged out.", "success")
+        return redirect(url_for("host_login"))
+
+    @app.get("/host/documents")
+    @host_required
+    def host_documents():
+        return render_template(
+            "host.html",
+            business_name=BUSINESS_NAME,
+            documents=list(get_documents()),
+            max_upload_mb=MAX_UPLOAD_MB,
+            extensions=", ".join(SUPPORTED_EXTENSIONS),
+        )
+
+    @app.post("/host/upload")
+    @host_required
+    def host_upload():
         file = request.files.get("document")
         if file is None or file.filename == "":
             flash("Choose a file to upload.", "error")
-            return redirect(url_for("index"))
+            return redirect(url_for("host_documents"))
 
         name = clean_filename(file.filename)
+        data = file.read()
         try:
-            text = read_document(name, file.read())
+            text = read_document(name, data)  # checked before saving: a bad file never reaches the guide
         except DocumentError as error:
             flash(str(error), "error")
-            return redirect(url_for("index"))
+            return redirect(url_for("host_documents"))
 
         if len(text) > MAX_DOCUMENT_CHARACTERS:
-            flash(f"{name}: the document is too long for this demo.", "error")
-            return redirect(url_for("index"))
+            flash(f"{name}: the document is too long. Split it into smaller documents.", "error")
+            return redirect(url_for("host_documents"))
 
-        state["documents"][name] = text  # a file with the same name replaces the old one
-        if name not in state["uploaded"]:
-            state["uploaded"].append(name)
-        flash(f"{name} was added. The assistant now uses it to answer.", "success")
-        return redirect(url_for("index"))
+        path = documents_folder / name
+        replaced = path.exists()
+        write_atomically(path, data)  # a file with the same name replaces the old one
+        flash(f"{name} was {'replaced' if replaced else 'added'}. Guests' answers now use it.", "success")
+        return redirect(url_for("host_documents"))
 
-    @app.post("/reset")
-    def reset():
-        state["documents"] = dict(sample_documents)
-        state["uploaded"] = []
-        conversations.clear_history(conversations_folder, get_guest_id())
-        flash("The conversation and uploaded documents were cleared.", "success")
-        return redirect(url_for("index"))
+    @app.post("/host/delete")
+    @host_required
+    def host_delete():
+        name = request.form.get("name", "")
+        # Only a name from the current list can be deleted, never a path like "../app.py".
+        if name not in get_documents():
+            flash("That document does not exist.", "error")
+            return redirect(url_for("host_documents"))
+
+        (documents_folder / name).unlink(missing_ok=True)
+        flash(f"{name} was deleted.", "success")
+        return redirect(url_for("host_documents"))
 
     @app.errorhandler(413)
     def file_too_large(error):
         flash(f"The file is larger than {MAX_UPLOAD_MB} MB.", "error")
-        return redirect(url_for("index"))
+        return redirect(url_for("host_documents"))
 
     return app
 
