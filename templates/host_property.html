@@ -10,7 +10,9 @@
 
     <section class="panel">
       <h2>Link for guests</h2>
-      <p class="link-text">{{ url_for('guest_page', slug=prop.slug, _external=True) }}</p>
+      <p class="link-text">{{ guest_url(prop) }}</p>
+      <p class="hint qr-hint">A printable QR code (PNG) that opens this link. Print it and leave it in the property.</p>
+      <a class="button secondary small" href="{{ url_for('host_qr_code', slug=prop.slug) }}">Download QR code</a>
     </section>
 
     <section class="panel">

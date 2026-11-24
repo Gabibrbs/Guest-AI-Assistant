@@ -3,6 +3,8 @@ flask>=3.0
 google-genai>=1.0
 python-dotenv>=1.0
 pypdf>=4.0
+qrcode[pil]>=8.0    # printable QR codes; [pil] also installs Pillow, which draws the PNG
+pillow>=10.1        # 10.1+ has ImageFont.load_default(size=...)
 
 # Tests
 pytest>=8.0

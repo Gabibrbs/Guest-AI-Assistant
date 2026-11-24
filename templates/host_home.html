@@ -18,7 +18,7 @@
             <div class="property-info">
               <strong>{{ prop.name }}</strong>
               <span class="hint">{{ document_count }} documents · Guest link:
-                <span class="link-text">{{ url_for('guest_page', slug=prop.slug, _external=True) }}</span></span>
+                <span class="link-text">{{ guest_url(prop) }}</span></span>
               <span class="property-actions">
                 <a class="button secondary small" href="{{ url_for('host_property', slug=prop.slug) }}">Manage guide</a>
                 <a href="{{ url_for('guest_page', slug=prop.slug) }}">Open guest page</a>

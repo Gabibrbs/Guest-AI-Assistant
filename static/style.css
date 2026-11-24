@@ -232,3 +232,6 @@ button:disabled { opacity: 0.6; cursor: wait; }
   .top { padding: 14px 16px; }
   .host { padding: 0 16px; margin: 16px auto; }
 }
+
+/* QR code download on the host's property page */
+.qr-hint { margin: 12px 0 10px; }

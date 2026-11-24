@@ -59,3 +59,4 @@ def test_settings(monkeypatch):
     # The limits use their defaults unless a test sets them (never the values in a real .env)
     monkeypatch.delenv("GUEST_QUESTIONS_PER_HOUR", raising=False)
     monkeypatch.delenv("QUESTIONS_PER_DAY", raising=False)
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)

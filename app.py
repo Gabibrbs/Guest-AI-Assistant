@@ -10,6 +10,7 @@ counters) lives in the data folder, which is never added to Git. See exemplo/.
 Run with:  python app.py   then open http://127.0.0.1:5000
 """
 
+import io
 import os
 import time
 from functools import wraps
@@ -26,6 +27,7 @@ from assistant.conversations import write_atomically
 from assistant.documents import SUPPORTED_EXTENSIONS, DocumentError, load_folder, read_document
 from assistant.gemini_client import GeminiError, create_client, get_model_name
 from assistant.properties import color_shades, load_properties
+from assistant.qr import PublicAddressError, check_public_base_url, guest_link, make_qr_png
 
 PROJECT_FOLDER = Path(__file__).parent
 EXAMPLE_FOLDER = PROJECT_FOLDER / "exemplo"   # the demo (in Git)
@@ -168,10 +170,22 @@ def create_app(client=None, data_folder=None):
             return view(*args, **kwargs)
         return wrapper
 
+    def public_base_url():
+        """PUBLIC_BASE_URL from .env, checked. Raises PublicAddressError if it is missing or wrong."""
+        return check_public_base_url(os.environ.get("PUBLIC_BASE_URL"))
+
+    def guest_url(prop):
+        """The full guest link shown to the host: the public address if it is set,
+        otherwise the address this page was opened with."""
+        try:
+            return guest_link(public_base_url(), prop.slug)
+        except PublicAddressError:
+            return url_for("guest_page", slug=prop.slug, _external=True)
+
     @app.context_processor
     def page_settings():
         """Values every template can use."""
-        return {"color_shades": color_shades}
+        return {"color_shades": color_shades, "guest_url": guest_url}
 
     # ---------- Guest pages ----------
 
@@ -288,6 +302,20 @@ def create_app(client=None, data_folder=None):
             max_upload_mb=MAX_UPLOAD_MB,
             extensions=", ".join(SUPPORTED_EXTENSIONS),
         )
+
+    @app.get("/host/p/<slug>/qr-code.png")
+    @host_required
+    def host_qr_code(slug):
+        """Download the printable QR code that opens this property's guest page."""
+        prop = get_property(slug)
+        try:
+            link = guest_link(public_base_url(), prop.slug)
+        except PublicAddressError as error:
+            # Without the real public address, the QR code would open the wrong page
+            flash(str(error), "error")
+            return redirect(url_for("host_property", slug=slug))
+        return send_file(io.BytesIO(make_qr_png(link, prop.name)), mimetype="image/png",
+                         as_attachment=True, download_name=f"qr-code-{prop.slug}.png")
 
     @app.post("/host/p/<slug>/upload")
     @host_required
