@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}{{ privacy.title }}{% endblock %}
+
+{% block content %}
+  <main class="host">
+    <p class="back"><a href="{{ url_for('guest_page', slug=prop.slug) }}">← {{ privacy.back }}</a></p>
+    <section class="panel privacy">
+      <h2>{{ privacy.title }}</h2>
+      {% for paragraph in privacy.paragraphs %}
+        <p>{{ paragraph }}</p>
+      {% endfor %}
+    </section>
+  </main>
+{% endblock %}

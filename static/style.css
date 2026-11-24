@@ -235,3 +235,8 @@ button:disabled { opacity: 0.6; cursor: wait; }
 
 /* QR code download on the host's property page */
 .qr-hint { margin: 12px 0 10px; }
+
+/* Privacy: one line under the question box, and the full notice page */
+.privacy-line { margin: 0; padding: 0 20px 14px; color: var(--muted); font-size: 0.8rem; }
+.privacy-line a { color: var(--blue); }
+.privacy p { margin: 10px 0 0; font-size: 0.95rem; }

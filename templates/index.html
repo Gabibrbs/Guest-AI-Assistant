@@ -68,6 +68,9 @@
                autocomplete="off" required autofocus>
         <button type="submit" class="button">Ask</button>
       </form>
+      <p class="privacy-line" lang="{{ privacy.language }}">
+        {{ privacy.line }} <a href="{{ url_for('privacy', slug=prop.slug) }}">{{ privacy.link }}</a>
+      </p>
     </main>
   </div>
 

@@ -26,6 +26,7 @@ from assistant.answer import answer_question
 from assistant.conversations import write_atomically
 from assistant.documents import SUPPORTED_EXTENSIONS, DocumentError, load_folder, read_document
 from assistant.gemini_client import GeminiError, create_client, get_model_name
+from assistant.privacy import privacy_notice
 from assistant.properties import color_shades, load_properties
 from assistant.qr import PublicAddressError, check_public_base_url, guest_link, make_qr_png
 
@@ -87,15 +88,21 @@ def data_folder_setting():
     return PROJECT_FOLDER / os.environ.get("DATA_FOLDER", DEFAULT_DATA_FOLDER)
 
 
-def create_app(client=None, data_folder=None):
+def create_app(client=None, data_folder=None, production=False):
     """Create the Flask app.
 
     `client` is the Gemini client. The tests pass a fake one; when it is None the real
     client is created on the first question (so the page opens even without an API key).
     `data_folder` holds config.toml and everything of this client; the tests pass a
     temporary one.
+    `production` is True only in wsgi.py (the online server): see below.
     """
     app = Flask(__name__)
+    # Debug mode shows error details and a console in the browser: never online.
+    app.config["DEBUG"] = False
+    # Online, the session cookie is only sent over HTTPS, so nobody on the same Wi-Fi can
+    # read it. Not on this computer: http://127.0.0.1 has no HTTPS and the cookie would be lost.
+    app.config["SESSION_COOKIE_SECURE"] = production
     # A fixed key: every server process must sign the session cookie the same way.
     app.config["SECRET_KEY"] = required_setting("SECRET_KEY")
     # Only the hash of the host password is stored (create it with set_host_password.py).
@@ -208,7 +215,14 @@ def create_app(client=None, data_folder=None):
             documents=list(get_documents(prop)),
             history=conversations.load_history(guest_conversations(prop), get_guest_id()),
             example_questions=EXAMPLE_QUESTIONS,
+            privacy=privacy_notice(prop, request.accept_languages),
         )
+
+    @app.get("/p/<slug>/privacy")
+    def privacy(slug):
+        prop = get_property(slug)
+        notice = privacy_notice(prop, request.accept_languages)
+        return render_template("privacy.html", prop=prop, privacy=notice, page_language=notice["language"])
 
     @app.get("/p/<slug>/logo")
     def logo(slug):
