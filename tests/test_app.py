@@ -126,14 +126,17 @@ def test_both_models_busy_shows_the_error_to_the_guest(data_folder):
     assert len(fake.models.calls) == 4
 
 
-def test_missing_api_key_is_shown_to_the_user(data_folder, monkeypatch):
+def test_missing_api_key_guest_sees_not_set_up_and_the_log_says_why(data_folder, monkeypatch, caplog):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     app = create_app(client=None, data_folder=data_folder)  # no fake: the real client is needed
     browser = app.test_client()
 
-    html = page_text(browser.post(f"{GUEST}/ask", data={"question": "Question?"}, follow_redirects=True))
+    html = page_text(browser.post(f"{GUEST}/ask", data={"question": "My room is 3B?"}, follow_redirects=True))
 
-    assert "GEMINI_API_KEY is not set" in html
+    assert "The assistant is not set up yet. Please contact your host." in html
+    assert "GEMINI_API_KEY" not in html       # no technical details for guests
+    assert "GEMINI_API_KEY is not set" in caplog.text
+    assert "My room is 3B" not in caplog.text
 
 
 # ---------- File names ----------

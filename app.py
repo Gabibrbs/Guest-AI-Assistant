@@ -24,6 +24,7 @@ from werkzeug.utils import secure_filename
 from assistant import conversations, limits
 from assistant.answer import answer_question
 from assistant.conversations import write_atomically
+from assistant.guest_messages import guest_message
 from assistant.documents import SUPPORTED_EXTENSIONS, DocumentError, load_folder, read_document
 from assistant.gemini_client import (
     DEFAULT_MAX_WAIT_SECONDS,
@@ -248,7 +249,7 @@ def create_app(client=None, data_folder=None, production=False):
         prop = get_property(slug)
         question = request.form.get("question", "").strip()
         if not question:
-            flash("Please type a question.", "error")
+            flash(guest_message("empty_question", request.accept_languages), "error")
             return redirect(url_for("guest_page", slug=slug, _anchor="ask"))
 
         # Limits first, before the paid API call. The guest's own limit is checked first,
@@ -269,7 +270,9 @@ def create_app(client=None, data_folder=None, production=False):
                                      fallback_model=get_fallback_model_name(),
                                      max_wait_seconds=max_wait_seconds)
         except GeminiError as error:
-            flash(str(error), "error")
+            # The log gets the English reason (never the question); the guest gets their language
+            app.logger.warning("No answer for a guest: %s", error)
+            flash(guest_message(error.kind, request.accept_languages), "error")
             return redirect(url_for("guest_page", slug=slug, _anchor="ask"))
 
         conversations.add_turn(guest_conversations(prop), guest_id, question, answer)
@@ -280,7 +283,7 @@ def create_app(client=None, data_folder=None, production=False):
     def reset(slug):
         prop = get_property(slug)
         conversations.clear_history(guest_conversations(prop), get_guest_id())
-        flash("Your conversation was cleared.", "success")
+        flash(guest_message("cleared", request.accept_languages), "success")
         return redirect(url_for("guest_page", slug=slug))
 
     # ---------- Host pages ----------

@@ -40,21 +40,26 @@ logger = logging.getLogger(__name__)
 
 
 class GeminiError(Exception):
-    """The model could not give an answer. The message is shown to the user.
+    """The model could not give an answer.
 
-    `temporary` is True when the service was busy (worth trying another model).
+    The message (English) is for logs and the evaluation CSV. `kind` chooses the message
+    the guest sees, in their language: "busy", "failed", "empty" or "not_set_up"
+    (see guest_messages.py). `temporary` is True when the service was busy
+    (worth trying another model).
     """
 
-    def __init__(self, message, temporary=False):
+    def __init__(self, message, temporary=False, kind="failed"):
         super().__init__(message)
         self.temporary = temporary
+        self.kind = "busy" if temporary else kind
 
 
 def create_client():
     """Create the Gemini client with the key from the GEMINI_API_KEY environment variable."""
     api_key = os.environ.get("GEMINI_API_KEY", "").strip()
     if not api_key:
-        raise GeminiError("GEMINI_API_KEY is not set. Copy .env.example to .env and add your key.")
+        raise GeminiError("GEMINI_API_KEY is not set. Copy .env.example to .env and add your key.",
+                          kind="not_set_up")
 
     http_options = types.HttpOptions(
         timeout=TIMEOUT_SECONDS * 1000,  # in milliseconds
@@ -136,7 +141,8 @@ def ask_gemini(client, model, prompt, sleep=None, max_attempts=MAX_ATTEMPTS, dea
         text = (response.text or "").strip()
         if not text:
             # For example, a reply blocked by the safety filters
-            raise GeminiError("The assistant returned an empty answer. Please rephrase the question.")
+            raise GeminiError("The assistant returned an empty answer. Please rephrase the question.",
+                              kind="empty")
         return text
 
 
