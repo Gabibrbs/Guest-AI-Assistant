@@ -30,9 +30,12 @@ MIN_REQUEST_SECONDS = 5         # no new request starts with less time than this
 
 BUSY_MESSAGE = "The assistant is busy right now. Please try again in a minute."
 
-# Low "thinking": looking up a short guide does not need long reasoning, and answers come faster
+# Low "thinking": looking up a short guide does not need long reasoning, and answers come faster.
+# Automatic function calling is off: the app gives the model no tools, and with it on the
+# library writes "AFC is enabled with max remote calls: 10" in the log for every question.
 GENERATION_CONFIG = types.GenerateContentConfig(
     thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW),
+    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
 )
 
 

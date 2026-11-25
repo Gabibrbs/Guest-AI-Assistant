@@ -43,6 +43,17 @@ def test_returns_the_model_text(sleep):
     assert call["model"] == "test-model"
     assert call["contents"] == "my prompt"
     assert call["config"] is not None  # the generation settings are sent
+
+
+def test_automatic_function_calling_is_off(sleep):
+    """The app gives the model no tools; with this on, the library logs "AFC is enabled" every time."""
+    client = FakeGeminiClient("Answer")
+
+    ask_gemini(client, "test-model", "prompt", sleep=sleep, deadline=None)
+
+    config = client.models.calls[0]["config"]
+    assert config.automatic_function_calling.disable is True
+    assert config.thinking_config is not None  # the other settings are still there
     assert sleep.waits == []
 
 
