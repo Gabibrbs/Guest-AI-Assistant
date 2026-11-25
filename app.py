@@ -116,6 +116,13 @@ def create_app(client=None, data_folder=None, production=False):
     app.config["SECRET_KEY"] = required_setting("SECRET_KEY")
     # Only the hash of the host password is stored (create it with set_host_password.py).
     host_password_hash = required_setting("HOST_PASSWORD_HASH")
+    # Optional: a password for the whole site, for a private test (set_host_password.py --site).
+    # Not set (the default): guests open their page freely.
+    site_password_hash = os.environ.get("SITE_PASSWORD_HASH", "").strip() or None
+    # Behind a proxy (PythonAnywhere), the visitor's real IP address comes in a header
+    # (X-Real-IP). Only set this where the proxy writes that header: elsewhere a visitor
+    # could send any address in it.
+    client_ip_header = os.environ.get("CLIENT_IP_HEADER", "").strip() or None
     app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
     # The browser does not send the cookie with forms posted from other websites,
     # so another site cannot make a logged-in host delete documents.
@@ -167,6 +174,32 @@ def create_app(client=None, data_folder=None, production=False):
             session["guest_id"] = guest_id
         return guest_id
 
+    def client_address():
+        """The visitor's IP address, for the login limits."""
+        if client_ip_header:
+            value = request.headers.get(client_ip_header, "").strip()
+            if value:
+                return value
+        return request.remote_addr or "unknown"
+
+    def too_many_failed_logins(kind):
+        """True after LOGIN_FAILURES_PER_ADDRESS failures from this address in 15 minutes,
+        or LOGIN_FAILURES_TOTAL from everyone in an hour. `kind` is "login" or "site-login"."""
+        return (
+            limits.used(limits_file, f"{kind}:{client_address()}", LOGIN_ADDRESS_PERIOD) >= LOGIN_FAILURES_PER_ADDRESS
+            or limits.used(limits_file, f"{kind}:all", limits.HOUR) >= LOGIN_FAILURES_TOTAL
+        )
+
+    def record_failed_login(kind):
+        limits.record(limits_file, f"{kind}:{client_address()}", LOGIN_ADDRESS_PERIOD)
+        limits.record(limits_file, f"{kind}:all", limits.HOUR)
+
+    def safe_next_page(value):
+        """Only a page of this site (starting with one "/"), never another website."""
+        if value and value.startswith("/") and not value.startswith("//") and "\\" not in value:
+            return value
+        return url_for("home")
+
     def is_logged_in_host():
         """True if this browser logged in as the host less than 8 hours ago."""
         if not session.get("is_host"):
@@ -201,6 +234,35 @@ def create_app(client=None, data_folder=None, production=False):
             return guest_link(public_base_url(), prop.slug)
         except PublicAddressError:
             return url_for("guest_page", slug=prop.slug, _external=True)
+
+    @app.before_request
+    def require_site_password():
+        """With SITE_PASSWORD_HASH set, every page needs the site password first."""
+        if site_password_hash is None or request.endpoint in ("site_login", "static"):
+            return None
+        if session.get("site_ok"):
+            return None
+        next_page = request.full_path.rstrip("?") if request.method == "GET" else "/"
+        return redirect(url_for("site_login", next=next_page))
+
+    @app.route("/site-login", methods=["GET", "POST"])
+    def site_login():
+        if site_password_hash is None:
+            abort(404)  # the site is open: there is nothing to log in to
+        next_page = safe_next_page(request.values.get("next", ""))
+        if session.get("site_ok"):
+            return redirect(next_page)
+        if request.method == "POST":
+            if too_many_failed_logins("site-login"):
+                app.logger.warning("Site login blocked after too many failed attempts.")
+                flash("Too many failed attempts. Please wait 15 minutes and try again.", "error")
+            elif check_password_hash(site_password_hash, request.form.get("password", "")):
+                session["site_ok"] = True
+                return redirect(next_page)
+            else:
+                record_failed_login("site-login")
+                flash("Wrong password.", "error")
+        return render_template("site_login.html", next_page=next_page)
 
     @app.context_processor
     def page_settings():
@@ -297,12 +359,7 @@ def create_app(client=None, data_folder=None, production=False):
                 properties=[(prop, len(get_documents(prop))) for prop in properties.values()],
             )
         if request.method == "POST":
-            address = request.remote_addr or "unknown"
-            too_many = (
-                limits.used(limits_file, f"login:{address}", LOGIN_ADDRESS_PERIOD) >= LOGIN_FAILURES_PER_ADDRESS
-                or limits.used(limits_file, "login:all", limits.HOUR) >= LOGIN_FAILURES_TOTAL
-            )
-            if too_many:
+            if too_many_failed_logins("login"):
                 # The password is not even checked, so guessing stops here.
                 app.logger.warning("Host login blocked after too many failed attempts.")
                 flash("Too many failed attempts. Please wait 15 minutes and try again.", "error")
@@ -311,8 +368,7 @@ def create_app(client=None, data_folder=None, production=False):
                 session["host_since"] = time.time()
                 return redirect(url_for("host_home"))
             else:
-                limits.record(limits_file, f"login:{address}", LOGIN_ADDRESS_PERIOD)
-                limits.record(limits_file, "login:all", limits.HOUR)
+                record_failed_login("login")
                 flash("Wrong password.", "error")
         return render_template("host_login.html")
 

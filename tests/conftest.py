@@ -63,3 +63,5 @@ def test_settings(monkeypatch):
     monkeypatch.delenv("GEMINI_MODEL", raising=False)           # the defaults, not a real .env
     monkeypatch.delenv("GEMINI_FALLBACK_MODEL", raising=False)
     monkeypatch.delenv("GEMINI_MAX_WAIT_SECONDS", raising=False)
+    monkeypatch.delenv("SITE_PASSWORD_HASH", raising=False)
+    monkeypatch.delenv("CLIENT_IP_HEADER", raising=False)

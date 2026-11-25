@@ -33,3 +33,6 @@ dados/
 
 # Pasta antiga das conversas (antes do passo 5 da Fase 2); pode ser apagada
 conversas/
+
+# Pacotes de deploy (zip do código)
+chatbot-*.zip

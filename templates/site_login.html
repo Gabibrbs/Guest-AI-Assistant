@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}Private site{% endblock %}
+{% block heading %}Private test site{% endblock %}
+{% block subtitle %}This site is not open to the public{% endblock %}
+
+{% block content %}
+  <main class="host">
+    {% include "_notices.html" %}
+
+    <section class="panel">
+      <h2>Password</h2>
+      <p class="hint">Enter the site password to continue.</p>
+      <form action="{{ url_for('site_login') }}" method="post" class="stack">
+        <input type="hidden" name="next" value="{{ next_page }}">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required autofocus>
+        <button type="submit" class="button">Continue</button>
+      </form>
+    </section>
+  </main>
+{% endblock %}
