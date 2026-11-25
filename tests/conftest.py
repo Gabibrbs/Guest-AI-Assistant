@@ -60,3 +60,5 @@ def test_settings(monkeypatch):
     monkeypatch.delenv("GUEST_QUESTIONS_PER_HOUR", raising=False)
     monkeypatch.delenv("QUESTIONS_PER_DAY", raising=False)
     monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)           # the defaults, not a real .env
+    monkeypatch.delenv("GEMINI_FALLBACK_MODEL", raising=False)

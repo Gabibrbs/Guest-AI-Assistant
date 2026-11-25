@@ -25,7 +25,7 @@ from assistant import conversations, limits
 from assistant.answer import answer_question
 from assistant.conversations import write_atomically
 from assistant.documents import SUPPORTED_EXTENSIONS, DocumentError, load_folder, read_document
-from assistant.gemini_client import GeminiError, create_client, get_model_name
+from assistant.gemini_client import GeminiError, create_client, get_fallback_model_name, get_model_name
 from assistant.privacy import privacy_notice
 from assistant.properties import color_shades, load_properties
 from assistant.qr import PublicAddressError, check_public_base_url, guest_link, make_qr_png
@@ -253,7 +253,8 @@ def create_app(client=None, data_folder=None, production=False):
 
         try:
             answer = answer_question(get_client(), get_model_name(), get_documents(prop), question,
-                                     business_name=prop.name, not_found_message=prop.not_found_message)
+                                     business_name=prop.name, not_found_message=prop.not_found_message,
+                                     fallback_model=get_fallback_model_name())
         except GeminiError as error:
             flash(str(error), "error")
             return redirect(url_for("guest_page", slug=slug, _anchor="ask"))

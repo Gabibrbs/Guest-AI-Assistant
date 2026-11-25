@@ -107,6 +107,25 @@ def test_api_error_is_shown_to_the_user(data_folder):
     assert "could not answer" in html
 
 
+def test_busy_main_model_and_the_fallback_answers_the_guest(data_folder):
+    browser, fake = make_app(data_folder, api_error(503), api_error(503), api_error(503),
+                             "Answer from the fallback.\nSOURCE: the-house.md")
+
+    html = page_text(browser.post(f"{GUEST}/ask", data={"question": "Wi-Fi?"}, follow_redirects=True))
+
+    assert "Answer from the fallback." in html
+    assert [call["model"] for call in fake.models.calls] == ["gemini-3.5-flash-lite"] * 3 + ["gemini-3.6-flash"]
+
+
+def test_both_models_busy_shows_the_error_to_the_guest(data_folder):
+    browser, fake = make_app(data_folder, *[api_error(503)] * 4)
+
+    html = page_text(browser.post(f"{GUEST}/ask", data={"question": "Wi-Fi?"}, follow_redirects=True))
+
+    assert "The assistant is busy right now." in html
+    assert len(fake.models.calls) == 4
+
+
 def test_missing_api_key_is_shown_to_the_user(data_folder, monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     app = create_app(client=None, data_folder=data_folder)  # no fake: the real client is needed

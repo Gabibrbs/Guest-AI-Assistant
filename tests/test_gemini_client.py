@@ -11,7 +11,9 @@ from assistant.answer import answer_question
 from assistant.gemini_client import (
     GeminiError,
     ask_gemini,
+    ask_with_fallback,
     create_client,
+    get_fallback_model_name,
     get_model_name,
 )
 
@@ -104,10 +106,102 @@ def test_missing_api_key_gives_a_clear_error(monkeypatch):
 
 def test_model_name_default_and_from_environment(monkeypatch):
     monkeypatch.delenv("GEMINI_MODEL", raising=False)
-    assert get_model_name() == "gemini-3.5-flash"
+    assert get_model_name() == "gemini-3.5-flash-lite"
 
     monkeypatch.setenv("GEMINI_MODEL", "other-model")
     assert get_model_name() == "other-model"
+
+
+def test_fallback_model_default_from_environment_or_off(monkeypatch):
+    monkeypatch.delenv("GEMINI_FALLBACK_MODEL", raising=False)
+    assert get_fallback_model_name() == "gemini-3.6-flash"
+
+    monkeypatch.setenv("GEMINI_FALLBACK_MODEL", "other-flash")
+    assert get_fallback_model_name() == "other-flash"
+
+    monkeypatch.setenv("GEMINI_FALLBACK_MODEL", "none")
+    assert get_fallback_model_name() is None
+
+
+# ---------- Fallback model ----------
+
+def test_main_model_answers_and_the_fallback_is_not_used(sleep):
+    client = FakeGeminiClient("Answer from main")
+
+    assert ask_with_fallback(client, "main", "fallback", "prompt", sleep=sleep) == "Answer from main"
+    assert [call["model"] for call in client.models.calls] == ["main"]
+
+
+def test_busy_main_model_then_the_fallback_answers(sleep, caplog):
+    client = FakeGeminiClient(api_error(503), api_error(503), api_error(503), "Answer from fallback")
+
+    text = ask_with_fallback(client, "main", "fallback", "My name is Ana Silva, room 3B", sleep=sleep)
+
+    assert text == "Answer from fallback"
+    assert [call["model"] for call in client.models.calls] == ["main", "main", "main", "fallback"]
+    assert sleep.waits == [5, 10]  # the fallback is asked at once, with no extra wait
+    assert "fallback model fallback answered" in caplog.text
+    assert "Ana Silva" not in caplog.text and "prompt" not in caplog.text
+
+
+@pytest.mark.parametrize("error", [api_error(429), api_error(500), api_error(504), ConnectionError("down")])
+def test_every_temporary_error_goes_to_the_fallback(sleep, error):
+    client = FakeGeminiClient(error, error, error, "Answer from fallback")
+
+    assert ask_with_fallback(client, "main", "fallback", "prompt", sleep=sleep) == "Answer from fallback"
+
+
+def test_both_models_busy_shows_the_busy_message(sleep, caplog):
+    client = FakeGeminiClient(api_error(503), api_error(503), api_error(503), api_error(503))
+
+    with pytest.raises(GeminiError, match="busy right now"):
+        ask_with_fallback(client, "main", "fallback", "Secret question", sleep=sleep)
+
+    assert [call["model"] for call in client.models.calls] == ["main", "main", "main", "fallback"]  # fallback once
+    assert "fallback model fallback also failed" in caplog.text
+    assert "Secret question" not in caplog.text
+
+
+def test_fallback_with_a_permanent_error_still_shows_the_busy_message(sleep):
+    client = FakeGeminiClient(api_error(503), api_error(503), api_error(503), api_error(400))
+
+    with pytest.raises(GeminiError, match="busy right now"):
+        ask_with_fallback(client, "main", "fallback", "prompt", sleep=sleep)
+
+
+@pytest.mark.parametrize("code", [400, 401, 403, 404])
+def test_permanent_error_does_not_go_to_the_fallback(sleep, code):
+    client = FakeGeminiClient(api_error(code))
+
+    with pytest.raises(GeminiError, match="could not answer"):
+        ask_with_fallback(client, "main", "fallback", "prompt", sleep=sleep)
+    assert [call["model"] for call in client.models.calls] == ["main"]
+
+
+def test_empty_answer_does_not_go_to_the_fallback(sleep):
+    client = FakeGeminiClient("")
+
+    with pytest.raises(GeminiError, match="empty answer"):
+        ask_with_fallback(client, "main", "fallback", "prompt", sleep=sleep)
+    assert len(client.models.calls) == 1
+
+
+@pytest.mark.parametrize("fallback", [None, "main"])
+def test_no_fallback_when_it_is_off_or_the_same_model(sleep, fallback):
+    client = FakeGeminiClient(api_error(503), api_error(503), api_error(503))
+
+    with pytest.raises(GeminiError, match="busy"):
+        ask_with_fallback(client, "main", fallback, "prompt", sleep=sleep)
+    assert len(client.models.calls) == 3
+
+
+def test_answer_question_without_fallback_by_default(sleep):
+    """The evaluation measures one model at a time, so answer_question has no fallback unless asked."""
+    client = FakeGeminiClient(api_error(503), api_error(503), api_error(503))
+
+    with pytest.raises(GeminiError):
+        answer_question(client, "main", {"a.md": "text"}, "Question?", sleep=sleep)
+    assert len(client.models.calls) == 3
 
 
 # ---------- Everything together ----------

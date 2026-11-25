@@ -40,7 +40,7 @@ The code is split into small modules:
 |---|---|
 | `assistant/documents.py` | Reads `.md`, `.txt` and `.pdf` (pypdf) and refuses empty, broken, password-protected or unsupported files with a clear message. |
 | `assistant/prompt.py` | Builds the prompt and reads the `SOURCE:` line back from the model's reply. |
-| `assistant/gemini_client.py` | Calls Gemini, retrying temporary errors (429, 500, 503, 504 and connection problems) with waits of 5 s and 10 s. |
+| `assistant/gemini_client.py` | Calls Gemini, retrying temporary errors (429, 500, 503, 504 and connection problems) with waits of 5 s and 10 s, then asking the fallback model once. |
 | `assistant/answer.py` | Puts the three together: question in, answer with sources out. |
 | `app.py` | Flask routes: page, ask, upload, start over. |
 | `evaluate.py` | Asks a fixed list of questions to the real API and saves the answers to a CSV. |
@@ -63,7 +63,7 @@ Open http://127.0.0.1:5000.
 
 If PowerShell refuses to run `Activate.ps1`, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
 
-The model is set in `.env` with `GEMINI_MODEL` (default `gemini-3.5-flash`). The API key is only read from `.env`, which is excluded from Git.
+The model is set in `.env` with `GEMINI_MODEL` (default `gemini-3.5-flash-lite`), and the fallback model with `GEMINI_FALLBACK_MODEL` (default `gemini-3.6-flash`; `none` turns it off). The API key is only read from `.env`, which is excluded from Git.
 
 ## Design decisions
 
@@ -101,24 +101,34 @@ python evaluate.py
 python evaluate.py --retry-failed resultados_avaliacao_YYYYMMDD_HHMM.csv   # ask again only the failed questions
 ```
 
-Results with `gemini-3.5-flash`, over two days because of the free-tier daily limit (8 questions on 20 November 2026, the other 9 on 21 November):
+Results with the main model, `gemini-3.5-flash-lite`, on 24 November 2026 (free tier, current prompt):
 
 | Check | Result |
 |---|---|
-| Questions answered without errors | 17 of 17 |
+| Questions answered | 17 of 17 (3 needed a second run after "busy" errors, see below) |
 | "Found / not found" right | 15 of 15 (the two large-dog questions are checked by hand) |
 | Source right | 17 of 17 |
 | Expected keyword in the answer | 9 of 9 |
 | Answers with Markdown | 0 |
+| Time per answer, without retry waits | median 3.1 s, average 4.8 s, slowest 19.4 s |
 
-- The four questions with no answer in the guide (baby cot, lift, airport transfer, bike rental) all got "this is not in the house guide" with a suggestion to contact the host, and no source.
-- The two large-dog questions (Portuguese and French) said that only small pets are mentioned and that large dogs are not covered by the guide, and suggested asking the host. Neither said that large dogs are refused.
-- Reading all 17 answers, each one was in the language of the question and I found nothing invented.
+- The four questions with no answer in the guide (baby cot, lift, airport transfer, bike rental) all got "this is not in the house guide" with the host's suggestion from `config.toml`, translated, and no source.
+- The two large-dog questions (Portuguese and French) said that only small pets are mentioned and that the rest is not in the guide, and suggested contacting the host. Neither said that large dogs are refused.
+- The cancellation question (10 days before arrival, in Italian) gave the right rule: 50% refund between 14 and 7 days.
+- Reading all 17 answers against the guide, each one was in the language of the question and I found nothing invented.
+- On the first pass, 8 of the 17 questions got a 503 "busy" error at least once, and 3 still failed after three attempts. Asked again with `--retry-failed`, they were answered (one needed two more runs).
+
+**Fallback model.** Because of those busy errors, the app has a second model. If the main model is still busy after its three attempts, the same question is sent once to the fallback model (`GEMINI_FALLBACK_MODEL`, default `gemini-3.6-flash`) before the guest sees an error. Only temporary errors go to the fallback: a permanent error such as 400 would fail there too. The log records that the fallback was used, never the question. I first chose `gemini-3.8-flash`, but it answered "high demand" (503) to all three test requests on 25 November, so I evaluated `gemini-3.6-flash` instead, the same day:
+
+- 17 of 17 answered, with no errors and one new attempt. No practical fact was invented: the extra details it added (Wi-Fi network name, router reset, late check-out price) are all in the guide.
+- The automatic "found / not found" check gave 13 of 15. For the lift and the airport transfer, the answer correctly said the information is not in the guide, but it cited a related document (the floor, the airport metro), so the check counted it as "found".
+- In three answers (Portuguese, Spanish, German) it called the host a woman ("anfitriã", "anfitriona", "Gastgeberin"). The guide never says this: a small invention.
+- It was slower: median 4.1 s, average 9.5 s, slowest 63 s.
 
 ## Limitations
 
-- **Speed varies a lot.** In the second evaluation run, which measured the API's own time separately from the retry waits, 6 of 9 answers took under 5 seconds (median 3.2 s), but three took 26, 62 and 70 seconds, and two needed a new attempt after an error. On the first day, with only the total time measured, answers took between 2 and 51 seconds. The slow answers come from the API's response time, not from the app's own code.
-- **Free-tier quota:** in my account (free tier, November 2026) Gemini allowed 20 requests per day, which is enough to try the demo but not to use it with real guests. Google changes these limits, so check yours in Google AI Studio.
+- **Speed and "busy" errors depend on Google's service.** With `gemini-3.5-flash-lite`, 12 of 17 answers took under 5 seconds, but the slowest took 19 seconds, and on the free tier many requests first got a "busy" error. The fallback model reduces, but cannot remove, the chance that a guest sees "The assistant is busy right now". The slow answers come from the API's response time, not from the app's own code.
+- **Free-tier quota:** in my account (free tier, November 2026) Google AI Studio showed 500 requests per day for `gemini-3.5-flash-lite` and 20 per day for the Flash models. Google changes these limits, so check yours in Google AI Studio. The free tier is only for trying the app: Google's terms allow only paid services for apps used by people in the EEA, Switzerland or the UK.
 - **Each question is answered on its own.** The conversation is shown on the page, but earlier questions are not sent to the model, so a follow-up like "and on Sunday?" will not work. Ask complete questions.
 - **Demo, not production:** no login, one shared conversation kept in memory, and uploaded documents are lost when the server restarts.
 - **The model can still be wrong.** The prompt rules and the source check reduce the risk, and the evaluation script measures it, but they can't remove it completely.
