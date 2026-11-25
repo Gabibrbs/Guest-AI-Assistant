@@ -14,12 +14,12 @@ The assistant runs on two services. Both accounts are in **your name, with your 
 
 | Service | What it does | Cost |
 |---|---|---|
-| **Google AI Studio / Google Cloud** | The AI model (Gemini) that writes the answers | Pay per use, a few euros a month (see section 3) |
+| **Google AI Studio / Google Cloud** | The AI model (Gemini) that writes the answers | Pay per use, a few US dollars a month (see section 3) |
 | **PythonAnywhere**, *Developer* plan | Hosts the web page your guests open | US$10 per month ([pricing](https://www.pythonanywhere.com/pricing/)) |
 
-**PythonAnywhere in the EU.** PythonAnywhere has a separate EU site, **eu.pythonanywhere.com**, with its servers in Frankfurt. Its privacy policy says personal information on the EU service is kept in the EU ([privacy policy](https://eu.pythonanywhere.com/privacy_v2/), [announcement](https://blog.pythonanywhere.com/176/)). Please create your account on **eu.pythonanywhere.com**. Your guest link will then look like `https://yourname.eu.pythonanywhere.com/p/...`.
+**PythonAnywhere in the EU.** PythonAnywhere has a separate EU site, **eu.pythonanywhere.com**, which it announced with its servers in Frankfurt ([announcement](https://blog.pythonanywhere.com/176/)). Its privacy policy (version 2.0, effective 10 May 2018, written before the EU site opened) says that personal information collected on the EU-hosted service is stored within the EU and not transferred to other countries ([privacy policy](https://eu.pythonanywhere.com/privacy_v2/), section 11.1). This policy is old, so please check PythonAnywhere's current privacy policy when you create the account. Please create your account on **eu.pythonanywhere.com**. Your guest link will then look like `https://yourname.eu.pythonanywhere.com/p/...`.
 
-### What you do yourself (about 5 minutes)
+### What you do yourself (about 15 minutes)
 
 1. Create a Google account for the business, if you don't have one.
 2. Create a project in Google Cloud ([how](https://docs.cloud.google.com/resource-manager/docs/creating-managing-projects)).
@@ -41,19 +41,20 @@ PythonAnywhere has no documented way to give another person limited access to an
 Google's Gemini API has a free tier, but it cannot be used for your guests:
 
 - Google's terms say: *"You may use only Paid Services when making API Clients available to users in the European Economic Area, Switzerland, or the United Kingdom."* ([Gemini API terms](https://aistudio.google.com/docs/terms), effective 23 March 2026)
-- On the free tier, Google uses what is sent *"to provide, improve, and develop"* its products, and people at Google may read it. On the paid tier, Google *"doesn't use your prompts ... or responses to improve our products"* and keeps them only *"for a limited period of time, solely for detecting and preventing violations"*.
+- On the free tier ("Unpaid Services"), Google uses the content you submit and the answers *"to provide, improve, and develop"* its products, and *"human reviewers may read, annotate, and process your API input and output."*
+- On the paid tier ("Paid Services"), Google *"doesn't use your prompts"* (or the files and instructions sent with them) *"or responses to improve our products"*, and *"logs prompts and responses for a limited period of time, solely for detecting and preventing violations"* of its Prohibited Use Policy (and for any required legal or regulatory disclosures).
 
 ### A spending limit: prepaid billing
 
-In Google AI Studio, **Set up billing** lets you pay in advance (minimum top-up US$5). When the balance reaches zero, the keys stop working, so you can never spend more than you put in ([billing](https://aistudio.google.com/docs/billing)). The assistant then stops answering until you top up.
+In Google AI Studio, **Set up billing** lets you pay in advance. New accounts start on prepaid billing, and the minimum purchase of credits is US$5. When the prepaid balance reaches $0, the API keys linked to that billing account stop working until you add credits, so you can never spend more than you put in ([billing](https://aistudio.google.com/docs/billing)). The assistant then stops answering until you top up.
 
-A **budget alert** in Google Cloud only sends you emails: *"Setting an alerts-only budget doesn't automatically cap ... usage or spending"* ([budgets](https://docs.cloud.google.com/billing/docs/how-to/budgets)). Prepaid billing is the real limit.
+A **budget alert** in Google Cloud only sends you emails: *"Setting an alerts-only budget doesn't automatically cap Google Cloud or Google Maps Platform usage or spending."* ([budgets](https://docs.cloud.google.com/billing/docs/how-to/budgets)). Prepaid billing is the real limit.
 
 ### Turning off Google's request logs
 
-Google AI Studio can keep a copy of every question and answer in your project's **logs**. In projects created on or after 26 October 2026 this is **on by default**, kept for up to 55 days ([logs policy](https://aistudio.google.com/docs/logs-policy)). That would contradict what the privacy notice tells your guests (conversations deleted after 24 hours).
+Google AI Studio can keep a copy of every question and answer in your project's **logs**. For the kind of request the assistant makes, this is **on by default** in projects created on or after 26 October 2026, and logs are kept for a default maximum of 55 days ([logs policy](https://aistudio.google.com/docs/logs-policy)). That would contradict what the privacy notice tells your guests (conversations deleted after 24 hours).
 
-*"As a project owner, you can turn logging on or off"*: only you can do it, so we do it together during the setup call. Please never share these logs as a dataset with Google.
+The logs policy says: *"As a project owner, you can turn logging on or off at any time from the Logs page in AI Studio."* You are the project owner, so you do it, together with me during the setup call. Please never share these logs as a dataset with Google.
 
 ---
 
@@ -106,7 +107,7 @@ All of this is on your **host page**: `https://yourname.eu.pythonanywhere.com/ho
 
 - **Never change a property's link after printing its QR code.** The link (the part after `/p/`) and the web address are printed inside the QR code. If either changes, every printed QR code and every link you have sent stops working.
 - **Conversations are deleted after 24 hours.** Each guest's conversation is saved so they can see it on the page; it is deleted 24 hours after their last message (when the page is next opened). Only the last 20 questions are kept.
-- **Privacy notice and age.** Under the question box, guests see a short line saying questions go to Google's Gemini AI and that they should not write personal data, with a link to the full notice. The notice names you (from your settings) and says the assistant is for guests aged 18 or over: Google's terms do not allow apps *"directed towards or ... likely to be accessed by individuals under the age of 18"*.
+- **Privacy notice and age.** Under the question box, guests see a short line saying questions go to Google's Gemini AI and that they should not write personal data, with a link to the full notice. The notice names you (from your settings) and says the assistant is for guests aged 18 or over. Google's terms say: *"You must be 18 years of age or older to use the APIs."* They also do not allow using the API in a website or app *"that is directed towards or is likely to be accessed by individuals under the age of 18."*
 - **Limits.** When a guest reaches the hourly limit, or all guests together reach the daily limit, they see a friendly message in their language. The daily limit restarts at midnight (UTC).
 - **"The assistant is busy right now".** Google's service is sometimes overloaded. The assistant tries again, then tries the second model, and gives up after 40 seconds so the guest never waits longer.
 - **The assistant can still be wrong.** It only uses your guide and says when something is not there, but like any AI it can make mistakes. Keep important information clear and up to date.
@@ -159,5 +160,20 @@ Also:
 | The page does not open at all | On PythonAnywhere's **Web** tab, press **Reload**. If it still fails, open the **error log** on the same tab and send me the last lines. |
 | A guest cannot open the QR code | Scan it yourself: does it open your guest page? If not, tell me. |
 | You forgot the host password | Set a new one (section 4). |
+| The PythonAnywhere plan is not renewed (for example, the card expired) | The page goes offline for your guests. Renew the plan on PythonAnywhere's **Account** page, then press **Reload** on the **Web** tab. |
 
 For anything else, contact me. I can usually look at it with you in a short screen-share call.
+
+---
+
+## 9. Support
+
+Your package: **[PACKAGE]**
+
+| Package | What is included |
+|---|---|
+| **Essential** | The assistant set up for 1 property, with your house guide |
+| **Complete** | Up to 3 properties, each with its own guide and link, your logo and colors, and a printable QR code for each property |
+| **Premium** | Everything in Complete, plus updates to your house guides for 3 months |
+
+Support period: **[SUPPORT PERIOD]**. During this period, contact me if something in section 8 does not solve the problem, or if the assistant does not work as described in this guide.

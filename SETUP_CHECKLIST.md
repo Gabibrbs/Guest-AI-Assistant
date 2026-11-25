@@ -40,15 +40,18 @@ Regras que nunca mudam:
 ### 2.2. Eu faço (com o acesso IAM)
 
 - [ ] Ativar a **Gemini API** (Generative Language API) no projeto.
-- [ ] Criar a **chave da API** e restringi-la a essa API. A chave só vai para o `.env` do servidor, escrita durante a chamada; nunca fica guardada no meu PC.
+- [ ] Criar a **chave da API** só durante a chamada, quando o `.env` do servidor já estiver aberto (secção 6), e restringi-la à Gemini API:
+  1. Na Google Cloud do cliente, criar a chave e copiá-la.
+  2. Colá-la diretamente na linha `GEMINI_API_KEY=` do `.env` no servidor e guardar o ficheiro.
+  3. **Fechar a janela da chave sem a guardar em lado nenhum:** nada de Bloco de Notas, chat, email, captura de ecrã ou ficheiro no meu PC. Se for preciso outra vez, cria-se uma nova e apaga-se a antiga.
 - [ ] Criar um **alerta de orçamento**, por exemplo 10 €/mês, com avisos a 50%, 90% e 100%. Lembrar que só envia emails e não trava os gastos.
 
 ### 2.3. Na chamada, o cliente faz com a minha ajuda
 
-- [ ] **Desligar o registo de pedidos** no AI Studio (logs-policy). Só o *project owner* o pode fazer. Se não der para desligar, pôr a retenção mais curta (7 dias) e avisar-me, porque o aviso de privacidade tem de mudar.
-- [ ] Abrir o PythonAnywhere dele. Eu faço as secções 4 a 7 com ele a ver.
+- [ ] **Desligar o registo de pedidos** no AI Studio, na página **Logs** (logs-policy: «As a project owner, you can turn logging on or off at any time from the Logs page in AI Studio»). Quem o faz é o cliente, que é o *project owner*. Se não der para desligar, pôr a retenção mais curta (7 dias) e avisar-me, porque o aviso de privacidade tem de mudar.
+- [ ] Abrir o PythonAnywhere dele. Fazemos as secções 5 a 7 com ele a partilhar o ecrã: eu digo o que fazer, ele carrega o zip e escreve a palavra-passe.
 
-## 3. No meu PC: chave secreta e hashes
+## 3. No meu PC: chave secreta da sessão
 
 - [ ] Gerar a chave da sessão (nova para cada cliente):
 
@@ -56,14 +59,9 @@ Regras que nunca mudam:
   python -c "import secrets; print('SECRET_KEY=' + secrets.token_hex(32))"
   ```
 
-- [ ] Gerar o hash da palavra-passe do anfitrião (pelo menos 10 caracteres). O cliente escolhe a palavra-passe e escreve-a ele, ou eu gero uma e envio-a por um canal separado do link.
-
-  ```powershell
-  python set_host_password.py
-  ```
-
+- [ ] Guardar a linha num sítio temporário (Bloco de Notas, sem guardar). Nunca no Git.
+- [ ] **A palavra-passe do anfitrião não passa por mim:** é o cliente que a escolhe e a escreve na consola dele, durante a chamada (secção 6). Eu nunca a sei.
 - [ ] A senha do site (`SITE_PASSWORD_HASH`) é **só para testes**: num cliente real fica vazia.
-- [ ] Guardar as linhas num sítio temporário (Bloco de Notas, sem guardar). Nunca no Git.
 
 ## 4. Montar o código
 
@@ -83,9 +81,11 @@ Regras que nunca mudam:
   git archive --format=zip --prefix=Chatbot/ -o chatbot-$(git rev-parse --short HEAD).zip HEAD
   ```
 
-## 5. Deploy no PythonAnywhere
+- [ ] **Enviar o zip ao cliente por email antes da chamada** (cerca de 170 KB, sem segredos: só tem o código do Git) e pedir-lhe que o guarde no PC dele. É a forma mais simples: na chamada não preciso de controlo remoto, porque ele próprio carrega o ficheiro.
 
-- [ ] **Files:** carregar o zip para `/home/<conta>/`.
+## 5. Deploy no PythonAnywhere (na conta do cliente, com ele a partilhar o ecrã)
+
+- [ ] **Files:** o cliente carrega o zip que lhe enviei para `/home/<conta>/` (botão «Upload a file»).
 - [ ] **Bash:**
 
   ```bash
@@ -127,16 +127,28 @@ Regras que nunca mudam:
 
 ## 6. O `.env` no servidor
 
+- [ ] **Palavra-passe do anfitrião, escrita pelo cliente.** Na consola **Bash** dele:
+
+  ```bash
+  workon chatbot
+  cd ~/Chatbot
+  python set_host_password.py
+  ```
+
+  - O cliente escreve a palavra-passe duas vezes (pelo menos 10 caracteres). Não aparece no ecrã, por isso eu não a vejo na partilha.
+  - O script mostra a linha `HOST_PASSWORD_HASH='...'`. O cliente copia-a para o `.env` abaixo; eu só confirmo que ficou bem colada.
+  - Lembrar-lhe que a guarde num gestor de palavras-passe. Se a esquecer, repete este passo (`DELIVERY.md`, secção 4).
+
 **Files** → `/home/<conta>/Chatbot/` → novo ficheiro `.env`:
 
 ```bash
-GEMINI_API_KEY=<chave do projeto do cliente>
+GEMINI_API_KEY=<colada aqui ao criá-la (secção 2.2), e a janela fechada>
 GEMINI_MODEL=gemini-3.5-flash-lite
 GEMINI_FALLBACK_MODEL=gemini-3.6-flash
 GEMINI_MAX_WAIT_SECONDS=40
 
 SECRET_KEY=<da secção 3>
-HOST_PASSWORD_HASH='<da secção 3>'
+HOST_PASSWORD_HASH='<a linha que o script mostrou ao cliente>'
 SITE_PASSWORD_HASH=
 
 GUEST_QUESTIONS_PER_HOUR=20
@@ -185,19 +197,19 @@ DATA_FOLDER=dados
   - os PNG dos QR codes;
   - o `DELIVERY.md`;
   - o endereço da página do anfitrião (`/host`).
-- [ ] A palavra-passe do anfitrião vai por um canal diferente do link, ou o cliente já a escolheu na chamada.
+- [ ] A palavra-passe do anfitrião não se envia: o cliente escolheu-a e escreveu-a ele na chamada (secção 6), e eu não a sei.
 - [ ] Mostrar-lhe na chamada: carregar e apagar um guia, imprimir o QR, onde ver o saldo pré-pago.
 - [ ] Lembrar:
   - nunca mudar o slug depois de imprimir o QR;
   - nada de códigos de porta no guia.
-- [ ] Apagar do meu PC as linhas temporárias (chave da sessão, hashes) e o zip.
+- [ ] Apagar do meu PC a linha temporária da chave da sessão e o zip.
 
 ## 10. Depois da entrega
 
 ### Atualizar o código (Premium: atualizações durante 3 meses)
 
 - [ ] No PC: testes a verde, commit e novo zip (secção 4).
-- [ ] **Files:** carregar o zip.
+- [ ] Enviar o zip novo ao cliente por email. Numa chamada curta, ele carrega-o em **Files** com o ecrã partilhado.
 - [ ] **Bash:**
 
   ```bash
