@@ -25,7 +25,15 @@ from assistant import conversations, limits
 from assistant.answer import answer_question
 from assistant.conversations import write_atomically
 from assistant.documents import SUPPORTED_EXTENSIONS, DocumentError, load_folder, read_document
-from assistant.gemini_client import GeminiError, create_client, get_fallback_model_name, get_model_name
+from assistant.gemini_client import (
+    DEFAULT_MAX_WAIT_SECONDS,
+    FALLBACK_RESERVE_SECONDS,
+    MIN_REQUEST_SECONDS,
+    GeminiError,
+    create_client,
+    get_fallback_model_name,
+    get_model_name,
+)
 from assistant.privacy import privacy_notice
 from assistant.properties import color_shades, load_properties
 from assistant.qr import PublicAddressError, check_public_base_url, guest_link, make_qr_png
@@ -73,13 +81,13 @@ def required_setting(name):
     return value
 
 
-def positive_number_setting(name, default):
-    """A whole number above zero from .env, or `default` when it is not set."""
+def positive_number_setting(name, default, minimum=1):
+    """A whole number (at least `minimum`) from .env, or `default` when it is not set."""
     value = os.environ.get(name, "").strip()
     if not value:
         return default
-    if not value.isdigit() or int(value) < 1:
-        raise RuntimeError(f"{name} must be a whole number above 0, not {value!r}.")
+    if not value.isdigit() or int(value) < minimum:
+        raise RuntimeError(f"{name} must be a whole number of at least {minimum}, not {value!r}.")
     return int(value)
 
 
@@ -117,6 +125,10 @@ def create_app(client=None, data_folder=None, production=False):
 
     guest_questions_per_hour = positive_number_setting("GUEST_QUESTIONS_PER_HOUR", DEFAULT_GUEST_QUESTIONS_PER_HOUR)
     questions_per_day = positive_number_setting("QUESTIONS_PER_DAY", DEFAULT_QUESTIONS_PER_DAY)
+    # The longest a guest waits for an answer. It must leave the main model some time
+    # after the part kept for the fallback model.
+    max_wait_seconds = positive_number_setting("GEMINI_MAX_WAIT_SECONDS", DEFAULT_MAX_WAIT_SECONDS,
+                                               minimum=FALLBACK_RESERVE_SECONDS + MIN_REQUEST_SECONDS)
 
     data_folder = Path(data_folder) if data_folder else data_folder_setting()
     properties = load_properties(data_folder)  # {slug: Property}; stops here if config.toml has a mistake
@@ -254,7 +266,8 @@ def create_app(client=None, data_folder=None, production=False):
         try:
             answer = answer_question(get_client(), get_model_name(), get_documents(prop), question,
                                      business_name=prop.name, not_found_message=prop.not_found_message,
-                                     fallback_model=get_fallback_model_name())
+                                     fallback_model=get_fallback_model_name(),
+                                     max_wait_seconds=max_wait_seconds)
         except GeminiError as error:
             flash(str(error), "error")
             return redirect(url_for("guest_page", slug=slug, _anchor="ask"))

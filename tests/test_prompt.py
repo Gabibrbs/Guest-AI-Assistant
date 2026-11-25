@@ -29,6 +29,13 @@ def test_prompt_has_question_business_name_and_rules():
     assert "same language as the question" in prompt
 
 
+def test_prompt_says_not_to_assume_the_hosts_gender():
+    prompt = build_prompt(DOCUMENTS, "Question?", "Casa Test")
+
+    assert "Do not assume the host's gender, not even from their name." in prompt
+    assert '"the host", translated into the guest\'s language' in prompt
+
+
 def test_real_documents_come_after_the_examples():
     prompt = build_prompt(DOCUMENTS, "Question?", "Casa Test")
     assert prompt.index("example-guide.md") < prompt.index("the-house.md")

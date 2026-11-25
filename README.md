@@ -63,7 +63,7 @@ Open http://127.0.0.1:5000.
 
 If PowerShell refuses to run `Activate.ps1`, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
 
-The model is set in `.env` with `GEMINI_MODEL` (default `gemini-3.5-flash-lite`), and the fallback model with `GEMINI_FALLBACK_MODEL` (default `gemini-3.6-flash`; `none` turns it off). The API key is only read from `.env`, which is excluded from Git.
+The model is set in `.env` with `GEMINI_MODEL` (default `gemini-3.5-flash-lite`), and the fallback model with `GEMINI_FALLBACK_MODEL` (default `gemini-3.6-flash`; `none` turns it off). `GEMINI_MAX_WAIT_SECONDS` (default 40, at least 20) is the longest a guest waits for an answer. The API key is only read from `.env`, which is excluded from Git.
 
 ## Design decisions
 
@@ -101,7 +101,7 @@ python evaluate.py
 python evaluate.py --retry-failed resultados_avaliacao_YYYYMMDD_HHMM.csv   # ask again only the failed questions
 ```
 
-Results with the main model, `gemini-3.5-flash-lite`, on 24 November 2026 (free tier, current prompt):
+Results with the main model, `gemini-3.5-flash-lite`, on 25 November 2026 (free tier, current prompt):
 
 | Check | Result |
 |---|---|
@@ -109,25 +109,30 @@ Results with the main model, `gemini-3.5-flash-lite`, on 24 November 2026 (free 
 | "Found / not found" right | 15 of 15 (the two large-dog questions are checked by hand) |
 | Source right | 17 of 17 |
 | Expected keyword in the answer | 9 of 9 |
+| Answers in the language of the question | 17 of 17 |
 | Answers with Markdown | 0 |
-| Time per answer, without retry waits | median 3.1 s, average 4.8 s, slowest 19.4 s |
+| Time per answer, without retry waits | median 3.0 s, average 4.5 s, slowest 16.3 s |
 
 - The four questions with no answer in the guide (baby cot, lift, airport transfer, bike rental) all got "this is not in the house guide" with the host's suggestion from `config.toml`, translated, and no source.
-- The two large-dog questions (Portuguese and French) said that only small pets are mentioned and that the rest is not in the guide, and suggested contacting the host. Neither said that large dogs are refused.
-- The cancellation question (10 days before arrival, in Italian) gave the right rule: 50% refund between 14 and 7 days.
-- Reading all 17 answers against the guide, each one was in the language of the question and I found nothing invented.
-- On the first pass, 8 of the 17 questions got a 503 "busy" error at least once, and 3 still failed after three attempts. Asked again with `--retry-failed`, they were answered (one needed two more runs).
+- Large dogs: the French answer said that small pets are welcome and that large dogs are not in the guide, and suggested contacting the host. The Portuguese answer was weaker: it said only small pets are welcome and suggested contacting the host, but did not say that large dogs are not covered. Neither said that large dogs are refused.
+- The cancellation question (10 days before arrival, in Italian) said that between 14 and 7 days there is a 50% refund, so 50% is kept.
+- Reading all 17 answers against the guide, I found no invented facts. The host is called "the host" in the guest's language, or by the name given in the guide (Inês).
+- On the first pass, 6 of the 17 questions got a 503 "busy" error at least once, and 3 still failed after three attempts. Asked again with `--retry-failed`, they were answered.
+
+**The host's gender.** The prompt now tells the model not to assume the host's gender, not even from their name, and to say "the host" in the guest's language or use the name in the guide. A first version of this rule gave examples in several languages ("o anfitrião", "el anfitrión"...). With it, two Italian answers came out partly in Portuguese and in English, so the examples were removed and the evaluation run again: the table above is from that second run.
 
 **Fallback model.** Because of those busy errors, the app has a second model. If the main model is still busy after its three attempts, the same question is sent once to the fallback model (`GEMINI_FALLBACK_MODEL`, default `gemini-3.6-flash`) before the guest sees an error. Only temporary errors go to the fallback: a permanent error such as 400 would fail there too. The log records that the fallback was used, never the question. I first chose `gemini-3.8-flash`, but it answered "high demand" (503) to all three test requests on 25 November, so I evaluated `gemini-3.6-flash` instead, the same day:
 
 - 17 of 17 answered, with no errors and one new attempt. No practical fact was invented: the extra details it added (Wi-Fi network name, router reset, late check-out price) are all in the guide.
 - The automatic "found / not found" check gave 13 of 15. For the lift and the airport transfer, the answer correctly said the information is not in the guide, but it cited a related document (the floor, the airport metro), so the check counted it as "found".
-- In three answers (Portuguese, Spanish, German) it called the host a woman ("anfitriã", "anfitriona", "Gastgeberin"). The guide never says this: a small invention.
+- In three answers (Portuguese, Spanish, German) it called the host a woman ("anfitriã", "anfitriona", "Gastgeberin"), probably from the host's name in the guide. This led to the gender rule above; the fallback has not been evaluated again with it yet.
 - It was slower: median 4.1 s, average 9.5 s, slowest 63 s.
+
+**Longest wait for a guest.** Each request may take up to 60 seconds, so without a limit the worst case was 3 attempts of 60 s, plus 5 s and 10 s of waits, plus 60 s for the fallback: 255 seconds. Now the guest waits at most `GEMINI_MAX_WAIT_SECONDS` (default 40 s). The main model must finish 15 s before the end, so the fallback still has time; each request gets only the time that is left, and no new attempt starts with less than 5 s. When the time runs out, the guest sees "The assistant is busy right now" instead of waiting.
 
 ## Limitations
 
-- **Speed and "busy" errors depend on Google's service.** With `gemini-3.5-flash-lite`, 12 of 17 answers took under 5 seconds, but the slowest took 19 seconds, and on the free tier many requests first got a "busy" error. The fallback model reduces, but cannot remove, the chance that a guest sees "The assistant is busy right now". The slow answers come from the API's response time, not from the app's own code.
+- **Speed and "busy" errors depend on Google's service.** With `gemini-3.5-flash-lite`, 11 of 17 answers took under 5 seconds, but the slowest took 16 seconds, and on the free tier many requests first got a "busy" error. The fallback model reduces, but cannot remove, the chance that a guest sees "The assistant is busy right now", and the 40-second limit means a very slow answer is cut off. The slow answers come from the API's response time, not from the app's own code.
 - **Free-tier quota:** in my account (free tier, November 2026) Google AI Studio showed 500 requests per day for `gemini-3.5-flash-lite` and 20 per day for the Flash models. Google changes these limits, so check yours in Google AI Studio. The free tier is only for trying the app: Google's terms allow only paid services for apps used by people in the EEA, Switzerland or the UK.
 - **Each question is answered on its own.** The conversation is shown on the page, but earlier questions are not sent to the model, so a follow-up like "and on Sunday?" will not work. Ask complete questions.
 - **Demo, not production:** no login, one shared conversation kept in memory, and uploaded documents are lost when the server restarts.

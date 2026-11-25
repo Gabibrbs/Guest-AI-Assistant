@@ -22,9 +22,52 @@ class FakeModels:
         if not self.replies:
             raise AssertionError("The fake client received more requests than expected.")
         reply = self.replies.pop(0)
+        if isinstance(reply, Slow):
+            reply = reply.arrive(config)
         if isinstance(reply, Exception):
             raise reply
         return SimpleNamespace(text=reply)  # the real response also has a .text attribute
+
+
+class FakeClock:
+    """A clock that only moves when the test says so (or when FakeClockSleep waits)."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+class FakeClockSleep:
+    """A sleep that moves the fake clock forward instead of really waiting."""
+
+    def __init__(self, clock):
+        self.clock = clock
+        self.waits = []
+
+    def __call__(self, seconds):
+        self.waits.append(seconds)
+        self.clock.now += seconds
+
+
+class Slow:
+    """A reply that takes `seconds` on the fake clock, like a slow answer from the API.
+
+    Like the real client, if the request's time limit is shorter, the clock moves only
+    up to that limit and the request fails with a timeout.
+    """
+
+    def __init__(self, clock, seconds, reply):
+        self.clock, self.seconds, self.reply = clock, seconds, reply
+
+    def arrive(self, config):
+        limit = config.http_options.timeout / 1000
+        if self.seconds > limit:
+            self.clock.now += limit
+            return TimeoutError("the request took too long")
+        self.clock.now += self.seconds
+        return self.reply
 
 
 class FakeGeminiClient:
