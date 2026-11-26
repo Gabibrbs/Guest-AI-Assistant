@@ -36,3 +36,6 @@ conversas/
 
 # Pacotes de deploy (zip do código)
 chatbot-*.zip
+
+# Ensaio geral do passo 11 (cliente fictício)
+ensaio_cliente_lisboa/
