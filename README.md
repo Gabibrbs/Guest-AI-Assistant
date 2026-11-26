@@ -191,4 +191,4 @@ The prompt and the retry logic come from an assignment in my AI specialisation c
 
 ## Author
 
-Gabriel Barbosa, junior Python developer based in Maia, Porto, Portugal. [github.com/Gabibrbs](https://github.com/Gabibrbs)
+Gabriel Barbosa, junior Python developer based in Maia, Porto, Portugal. [github.com/Gabibrbs](https://github.com/Gabibrbs) · [linkedin.com/in/gabibrbs](https://www.linkedin.com/in/gabibrbs)
