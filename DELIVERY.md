@@ -86,7 +86,7 @@ The assistant also has a **daily limit** of questions for all guests together (2
 All of this is on your **host page**: `https://yourname.eu.pythonanywhere.com/host`.
 
 - **Log in** with the host password. For safety, you are logged out after 8 hours or when you close the browser, and the page blocks logins after several wrong passwords.
-- **Add or replace a document** in a property's guide: *Manage guide → Upload*. Files can be `.md`, `.txt` or `.pdf`, up to 5 MB. A file with the same name replaces the old one. Answers use the new guide straight away.
+- **Add or replace documents** in a property's guide: *Manage guide → Upload*. You can choose several files at once. Files can be `.md`, `.txt` or `.pdf`, up to 5 MB in total per upload. A file with the same name replaces the old one. Answers use the new guide straight away.
 - **Delete a document**: *Delete* next to its name.
 - **Print the QR code**: *Download QR code* on the property's page. It is a PNG ready to print, about 10 cm wide. Before printing, scan it with your phone and check that your guest page opens.
 - **Change the host password**. In PythonAnywhere, open a **Bash console** and run:

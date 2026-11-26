@@ -408,28 +408,35 @@ def create_app(client=None, data_folder=None, production=False):
     @host_required
     def host_upload(slug):
         prop = get_property(slug)
-        file = request.files.get("document")
-        if file is None or file.filename == "":
+        # The form lets the host choose several files at once; each one is checked on its own,
+        # so one bad file does not stop the good ones.
+        files = [file for file in request.files.getlist("document") if file.filename]
+        if not files:
             flash("Choose a file to upload.", "error")
             return redirect(url_for("host_property", slug=slug))
 
+        for file in files:
+            save_document(prop, file)
+        return redirect(url_for("host_property", slug=slug))
+
+    def save_document(prop, file):
+        """Check one uploaded file and save it in the property's guide, with a message for the host."""
         name = clean_filename(file.filename)
         data = file.read()
         try:
             text = read_document(name, data)  # checked before saving: a bad file never reaches the guide
         except DocumentError as error:
             flash(str(error), "error")
-            return redirect(url_for("host_property", slug=slug))
+            return
 
         if len(text) > MAX_DOCUMENT_CHARACTERS:
             flash(f"{name}: the document is too long. Split it into smaller documents.", "error")
-            return redirect(url_for("host_property", slug=slug))
+            return
 
         path = prop.documents_folder / name
         replaced = path.exists()
         write_atomically(path, data)  # a file with the same name replaces the old one
         flash(f"{name} was {'replaced' if replaced else 'added'}. Guests' answers now use it.", "success")
-        return redirect(url_for("host_property", slug=slug))
 
     @app.post("/host/p/<slug>/delete")
     @host_required
@@ -449,7 +456,8 @@ def create_app(client=None, data_folder=None, production=False):
 
     @app.errorhandler(413)
     def file_too_large(error):
-        flash(f"The file is larger than {MAX_UPLOAD_MB} MB.", "error")
+        # The limit is for the whole upload, so several files together count as one
+        flash(f"The upload is larger than {MAX_UPLOAD_MB} MB. Upload fewer files at a time.", "error")
         slug = (request.view_args or {}).get("slug")
         if slug in properties:
             return redirect(url_for("host_property", slug=slug))

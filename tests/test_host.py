@@ -204,6 +204,43 @@ def test_invalid_upload_shows_error_and_is_not_saved(documents_folder, host, fil
     assert sorted(path.name for path in documents_folder.iterdir()) == ["house-rules.md", "the-house.md"]
 
 
+def upload_several(browser, files):
+    """Upload several (filename, data) pairs in one form, as when the host chooses many files at once."""
+    return browser.post(
+        f"{HOST_GUIDE}/upload",
+        data={"document": [(io.BytesIO(data), filename) for filename, data in files]},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+
+
+def test_several_documents_in_one_upload(documents_folder, host):
+    html = page_text(upload_several(host, [("breakfast.txt", b"Breakfast: 12 euros."),
+                                           ("bikes.md", b"Bikes: free to borrow.")]))
+
+    assert "breakfast.txt was added" in html
+    assert "bikes.md was added" in html
+    assert "4 documents" in html
+    assert (documents_folder / "bikes.md").read_bytes() == b"Bikes: free to borrow."
+
+
+def test_one_bad_file_does_not_stop_the_others(documents_folder, host):
+    html = page_text(upload_several(host, [("photo.jpg", b"image bytes"),
+                                           ("breakfast.txt", b"Breakfast: 12 euros."),
+                                           ("empty.txt", b"")]))
+
+    assert "only .md, .txt and .pdf" in html
+    assert "the file has no text" in html
+    assert "breakfast.txt was added" in html
+    assert sorted(path.name for path in documents_folder.iterdir()) == ["breakfast.txt", "house-rules.md", "the-house.md"]
+
+
+def test_upload_form_accepts_several_files(host):
+    html = page_text(host.get(HOST_GUIDE))
+
+    assert 'name="document"' in html and "multiple" in html
+
+
 def test_upload_without_file(host):
     html = page_text(host.post(f"{HOST_GUIDE}/upload", data={}, follow_redirects=True))
 

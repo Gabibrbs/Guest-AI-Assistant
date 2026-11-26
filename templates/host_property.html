@@ -38,10 +38,10 @@
     </section>
 
     <section class="panel">
-      <h2>Add or replace a document</h2>
-      <p class="hint">{{ extensions }}, up to {{ max_upload_mb }} MB. A file with the same name replaces the old one.</p>
+      <h2>Add or replace documents</h2>
+      <p class="hint">{{ extensions }}, up to {{ max_upload_mb }} MB in total. You can choose several files at once. A file with the same name replaces the old one.</p>
       <form action="{{ url_for('host_upload', slug=prop.slug) }}" method="post" enctype="multipart/form-data" class="upload">
-        <input type="file" name="document" accept="{{ extensions|replace(' ', '') }}" required>
+        <input type="file" name="document" accept="{{ extensions|replace(' ', '') }}" multiple required>
         <button type="submit" class="button secondary">Upload</button>
       </form>
     </section>
